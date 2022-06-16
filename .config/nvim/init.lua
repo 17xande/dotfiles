@@ -18,13 +18,15 @@ set.scrolloff = 6
 set.signcolumn = 'yes'
 set.wrap = false
 
+vim.g.mapleader = " "
+
+require('plugins')
+require('keymaps')
+
 vim.cmd [[
   colorscheme gruvbox
   highlight Normal guibg=none
-  source ./keymap.vim
 ]]
-
-require('plugins')
 
 vim.cmd([[
   augroup packer_user_config

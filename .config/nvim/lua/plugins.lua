@@ -9,7 +9,7 @@ end
 
 require('nvim-treesitter.configs').setup {
   -- A list of parser names, or "all".
-  ensure_installed = { "go", "lua", "rust" }
+ ensure_installed = { "go", "lua", "rust" }
 }
 
 local packer = require('packer')
@@ -23,6 +23,9 @@ return packer.startup(function()
     'nvim-treesitter/nvim-treesitter',
     run = ':TSUpdate'
   }
+
+  -- Plenary
+  use 'nvim-lua/plenary.nvim'
 
   -- Telescope
   use {
@@ -40,4 +43,6 @@ return packer.startup(function()
     packer.sync()
   end
 end)
+
+
 
