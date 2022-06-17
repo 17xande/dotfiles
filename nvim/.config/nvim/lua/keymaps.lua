@@ -7,4 +7,5 @@ end
 local nnoremap = M.nnoremap
 
 nnoremap("<leader>pv", ":Ex")
+nnoremap("<C-p>", ":Telescope")
 

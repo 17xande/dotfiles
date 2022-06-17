@@ -7,10 +7,6 @@ if fn.empty(fn.glob(install_path)) > 0 then
   packer_bootstrap = fn.system({'git', 'clone', '--depth', '1', 'https://github.com/wbthomason/packer.nvim', install_path})
 end
 
-require('nvim-treesitter.configs').setup {
-  -- A list of parser names, or "all".
- ensure_installed = { "go", "lua", "rust" }
-}
 
 local packer = require('packer')
 local use = packer.use
@@ -18,14 +14,22 @@ return packer.startup(function()
   -- Packer can manage itself
   use 'wbthomason/packer.nvim'
 
+  -- neogit
+  use {
+    'TimUntersberger/neogit',
+    requires = { {'nvim-lua/plenary.nvim'} }
+  }
+
   -- Treesitter
   use {
     'nvim-treesitter/nvim-treesitter',
     run = ':TSUpdate'
   }
 
-  -- Plenary
-  use 'nvim-lua/plenary.nvim'
+  require('nvim-treesitter.configs').setup {
+    -- A list of parser names, or "all".
+    ensure_installed = { "go", "lua", "rust" }
+  }
 
   -- Telescope
   use {
