@@ -24,9 +24,11 @@ require('plugins')
 require('keymaps')
 
 vim.cmd [[
-  colorscheme gruvbox
   highlight Normal guibg=none
+  colorscheme gruvbox
 ]]
+
+set.background = "dark"
 
 vim.cmd([[
   augroup packer_user_config

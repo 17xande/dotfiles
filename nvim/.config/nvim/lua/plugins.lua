@@ -41,7 +41,7 @@ return packer.startup(function()
     requires = { {'nvim-lua/plenary.nvim'} }
   }
 
-  use 'gruvbox-community/gruvbox'
+  use("ellisonleao/gruvbox.nvim")
 
   if packer_bootstrap then
     packer.sync()
