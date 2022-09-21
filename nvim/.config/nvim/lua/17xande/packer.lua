@@ -45,6 +45,8 @@ local packStart = require('packer').startup(function(use)
 
   use('ellisonleao/gruvbox.nvim')
 
+  use ('ThePrimeagen/vim-be-good')
+
   if packer_bootstrap then
     require('packer').sync()
   end
