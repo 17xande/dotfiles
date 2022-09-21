@@ -112,3 +112,13 @@ source $ZSH/oh-my-zsh.sh
 export PNPM_HOME="/home/alex/.local/share/pnpm"
 export PATH="$PNPM_HOME:$PATH"
 # pnpm end
+
+# deno
+export DENO_INSTALL="/home/alex/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+# deno end
+
+# go
+export PATH="$PATH:$GOROOT"
+export PATH="$PATH:$HOME/go/bin"
+
