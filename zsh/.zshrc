@@ -75,7 +75,6 @@ plugins=(
   colored-man-pages
   golang
   rust
-  autoupdate
   zsh-autosuggestions
   zsh-syntax-highlighting
 )
