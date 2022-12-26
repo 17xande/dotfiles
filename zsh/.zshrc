@@ -118,6 +118,7 @@ export PATH="$DENO_INSTALL/bin:$PATH"
 # deno end
 
 # go
-export PATH="$PATH:$GOROOT"
-export PATH="$PATH:$HOME/go/bin"
+export PATH=$PATH:/usr/local/go/bin
 
+# rust
+export PATH="$PATH:$HOME/.cargo/bin"
