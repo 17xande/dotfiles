@@ -10,6 +10,8 @@ end
 require('packer').startup(function(use)
   -- Package manager
   use 'wbthomason/packer.nvim'
+  use 'theprimeagen/harpoon'
+  use 'mbbill/undotree'
 
   use { -- LSP Configuration & Plugins
     'neovim/nvim-lspconfig',
@@ -426,3 +428,5 @@ cmp.setup {
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+
+require("17xande")
