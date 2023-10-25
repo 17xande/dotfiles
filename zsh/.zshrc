@@ -75,7 +75,7 @@ plugins=(
   colored-man-pages
   golang
   rust
-  zsh-autosuggestions
+ # zsh-autosuggestions
   zsh-syntax-highlighting
 )
 
@@ -133,3 +133,9 @@ esac
 # fnm
 export PATH="/home/alex/.local/share/fnm:$PATH"
 eval "`fnm env`"
+# fnm end
+
+# fzf
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# fzf end
+
