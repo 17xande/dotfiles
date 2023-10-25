@@ -121,11 +121,6 @@ export PATH=$PATH:$HOME/go/bin
 export PATH="$PATH:$HOME/.cargo/bin"
 # rust end
 
-# volta
-export VOLTA_HOME="$HOME/.volta"
-export PATH="$VOLTA_HOME/bin:$PATH"
-# volta end
-
 # pnpm
 export PNPM_HOME="/home/alex/.local/share/pnpm"
 case ":$PATH:" in
@@ -134,3 +129,7 @@ case ":$PATH:" in
 esac
 # pnpm end
 
+
+# fnm
+export PATH="/home/alex/.local/share/fnm:$PATH"
+eval "`fnm env`"
