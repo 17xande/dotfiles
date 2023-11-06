@@ -1,10 +1,7 @@
 vim.opt.nu = true
 vim.opt.relativenumber = true
 
-vim.opt.tabstop = 8
-vim.opt.expandtab = false
-vim.opt.softtabstop = 2
-vim.opt.shiftwidth = 2
+vim.opt.tabstop = 4
 
 vim.opt.smartindent = true
 vim.opt.wrap = false
