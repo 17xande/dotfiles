@@ -479,7 +479,8 @@ local servers = {
   rust_analyzer = {},
   tsserver = {},
   html = { filetypes = { 'html', 'twig', 'hbs' } },
-
+  tailwindcss = {},
+  htmx = {},
   lua_ls = {
     Lua = {
       workspace = { checkThirdParty = false },
