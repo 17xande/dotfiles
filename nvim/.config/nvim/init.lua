@@ -289,16 +289,16 @@ require("lazy").setup({
 	{
 		"Exafunction/codeium.vim",
 		config = function()
-			vim.keymap.set("i", "<C-y>", function()
+			vim.keymap.set("i", "<C-Y>", function()
 				return vim.fn["codeium#Accept"]()
 			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-e>", function()
+			vim.keymap.set("i", "<C-E>", function()
 				return vim.fn["codeium#Clear"]()
 			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-n>", function()
+			vim.keymap.set("i", "<C-N>", function()
 				return vim.fn["codeium#CycleCompletions"](1)
 			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-p>", function()
+			vim.keymap.set("i", "<C-P>", function()
 				return vim.fn["codeium#CycleCompletions"](-1)
 			end, { expr = true, silent = true })
 		end,
@@ -864,3 +864,5 @@ require("lazy").setup({
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+
+require("17xande")
