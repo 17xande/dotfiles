@@ -289,18 +289,7 @@ require("lazy").setup({
 	{
 		"Exafunction/codeium.vim",
 		config = function()
-			vim.keymap.set("i", "<C-Y>", function()
-				return vim.fn["codeium#Accept"]()
-			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-E>", function()
-				return vim.fn["codeium#Clear"]()
-			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-N>", function()
-				return vim.fn["codeium#CycleCompletions"](1)
-			end, { expr = true, silent = true })
-			vim.keymap.set("i", "<C-P>", function()
-				return vim.fn["codeium#CycleCompletions"](-1)
-			end, { expr = true, silent = true })
+			vim.g.codeium_manual = true
 		end,
 	},
 
