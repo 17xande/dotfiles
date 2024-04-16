@@ -548,10 +548,12 @@ require("lazy").setup({
 				gopls = {
 					filetypes = { "go", "gomod", "gowork", "gohtml", "gotmpl" },
 					settings = {
-						completeUnimported = true,
-						usePlaceholders = true,
-						analyses = {
-							unusedparams = true,
+						gopls = {
+							completeUnimported = true,
+							usePlaceholders = true,
+							analyses = {
+								unusedparams = true,
+							},
 						},
 					},
 				},
@@ -796,7 +798,7 @@ require("lazy").setup({
 			-- cursor location to LINE:COLUMN
 			---@diagnostic disable-next-line: duplicate-set-field
 			statusline.section_location = function()
-				return "%2l:%-2v"
+				return "%2l:%-2v %p%%"
 			end
 
 			-- ... and there is more!
