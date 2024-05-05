@@ -18,6 +18,12 @@ vim.opt_local.shiftwidth = 4
 
 vim.filetype.add({
 	extension = {
-		gohtml = "go",
+		gohtml = "html",
+	},
+})
+
+vim.filetype.add({
+	pattern = {
+		[".*/tasks/.*.yaml"] = "yaml.ansible",
 	},
 })

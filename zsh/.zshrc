@@ -130,7 +130,6 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-
 # fnm
 export PATH="/home/alex/.local/share/fnm:$PATH"
 eval "`fnm env`"
@@ -140,3 +139,4 @@ eval "`fnm env`"
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 # fzf end
 
+export PATH="/home/alex/.local/bin:$PATH"
