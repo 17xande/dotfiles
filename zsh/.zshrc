@@ -77,8 +77,11 @@ plugins=(
   rust
  # zsh-autosuggestions
   zsh-syntax-highlighting
-  zsh-vi-mode
+  #zsh-vi-mode
+  fzf
 )
+
+export FZF_BASE=/home/alex/.fzf
 
 source $ZSH/oh-my-zsh.sh
 
@@ -136,7 +139,7 @@ eval "`fnm env`"
 # fnm end
 
 # fzf
-[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+# [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 # fzf end
 
 export PATH="/home/alex/.local/bin:$PATH"
