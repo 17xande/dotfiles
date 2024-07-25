@@ -566,8 +566,12 @@ require("lazy").setup({
 				--
 				-- But for many setups, the LSP (`tsserver`) will work just fine
 				tsserver = {},
-				html = {},
-				htmx = {},
+				html = {
+					filetypes = { "html", "templ" },
+				},
+				htmx = {
+					filetypes = { "html", "templ" },
+				},
 				terraformls = {},
 				ansiblels = {},
 
@@ -828,6 +832,7 @@ require("lazy").setup({
 					"typescript",
 					"rust",
 					"yaml",
+          "templ",
 				},
 				-- Autoinstall languages that are not installed
 				auto_install = true,

@@ -22,6 +22,8 @@ vim.filetype.add({
 	},
 })
 
+vim.filetype.add({ extension = { templ = "templ" } })
+
 vim.filetype.add({
 	pattern = {
 		[".*/tasks/.*.yaml"] = "yaml.ansible",
