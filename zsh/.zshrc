@@ -143,3 +143,5 @@ eval "`fnm env`"
 # fzf end
 
 export PATH="/home/alex/.local/bin:$PATH"
+
+alias python="python3"
