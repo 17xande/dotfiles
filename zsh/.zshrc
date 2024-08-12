@@ -133,11 +133,6 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-# fnm
-export PATH="/home/alex/.local/share/fnm:$PATH"
-eval "`fnm env`"
-# fnm end
-
 # fzf
 # [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 # fzf end
@@ -145,3 +140,10 @@ eval "`fnm env`"
 export PATH="/home/alex/.local/bin:$PATH"
 
 alias python="python3"
+
+# fnm
+FNM_PATH="/home/alex/.local/share/fnm"
+if [ -d "$FNM_PATH" ]; then
+  export PATH="/home/alex/.local/share/fnm:$PATH"
+  eval "`fnm env`"
+fi
