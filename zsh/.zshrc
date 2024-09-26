@@ -145,7 +145,7 @@ eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
 # Generated for envman. Do not edit.
 [ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
-=======
+
 # fnm
 FNM_PATH="/home/alex/.local/share/fnm"
 if [ -d "$FNM_PATH" ]; then
