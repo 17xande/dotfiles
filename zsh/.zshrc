@@ -133,11 +133,6 @@ case ":$PATH:" in
 esac
 # pnpm end
 
-# fnm
-export PATH="/home/alex/.local/share/fnm:$PATH"
-eval "`fnm env`"
-# fnm end
-
 # fzf
 # [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
 # fzf end
@@ -150,3 +145,10 @@ eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
 # Generated for envman. Do not edit.
 [ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
+=======
+# fnm
+FNM_PATH="/home/alex/.local/share/fnm"
+if [ -d "$FNM_PATH" ]; then
+  export PATH="/home/alex/.local/share/fnm:$PATH"
+  eval "`fnm env`"
+fi

@@ -546,7 +546,7 @@ require("lazy").setup({
 			local servers = {
 				clangd = {},
 				gopls = {
-					filetypes = { "go", "gomod", "gowork", "gohtml", "gotmpl" },
+					filetypes = { "go", "gomod", "gowork" },
 					settings = {
 						gopls = {
 							completeUnimported = true,
@@ -832,7 +832,7 @@ require("lazy").setup({
 					"typescript",
 					"rust",
 					"yaml",
-          "templ",
+					"templ",
 				},
 				-- Autoinstall languages that are not installed
 				auto_install = true,
