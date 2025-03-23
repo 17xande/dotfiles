@@ -111,27 +111,20 @@ fi
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 
+export BROWSER=wslview
+
 # deno
 export DENO_INSTALL="$HOME/.deno"
 export PATH="$DENO_INSTALL/bin:$PATH"
 # deno end
 
 # go
-export PATH=$PATH:/usr/local/go/bin
-export PATH=$PATH:$HOME/go/bin
+export PATH=$PATH:$HOME/.local/opt/go/bin
 # go end
 
 # rust
 export PATH="$PATH:$HOME/.cargo/bin"
 # rust end
-
-# pnpm
-export PNPM_HOME="/home/alex/.local/share/pnpm"
-case ":$PATH:" in
-  *":$PNPM_HOME:"*) ;;
-  *) export PATH="$PNPM_HOME:$PATH" ;;
-esac
-# pnpm end
 
 # fzf
 # [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
@@ -152,3 +145,9 @@ if [ -d "$FNM_PATH" ]; then
   export PATH="/home/alex/.local/share/fnm:$PATH"
   eval "`fnm env`"
 fi
+
+# source sensitive variables.
+source ~/.config/sensitive.env
+
+# Generated for envman. Do not edit.
+[ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
