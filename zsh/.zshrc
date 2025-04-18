@@ -1,3 +1,5 @@
+# Add deno completions to search path
+if [[ ":$FPATH:" != *":/home/alex/.zsh/completions:"* ]]; then export FPATH="/home/alex/.zsh/completions:$FPATH"; fi
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
 
@@ -81,7 +83,7 @@ plugins=(
   fzf
 )
 
-export FZF_BASE=/home/alex/.fzf
+export FZF_BASE=/home/linuxbrew/.linuxbrew/opt/fzf
 
 source $ZSH/oh-my-zsh.sh
 
@@ -126,28 +128,13 @@ export PATH=$PATH:$HOME/.local/opt/go/bin
 export PATH="$PATH:$HOME/.cargo/bin"
 # rust end
 
-# fzf
-# [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
-# fzf end
-
 export PATH="/home/alex/.local/bin:$PATH"
 
 alias python="python3"
 
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# Generated for envman. Do not edit.
-[ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
-
-# fnm
-FNM_PATH="/home/alex/.local/share/fnm"
-if [ -d "$FNM_PATH" ]; then
-  export PATH="/home/alex/.local/share/fnm:$PATH"
-  eval "`fnm env`"
-fi
 
 # source sensitive variables.
 source ~/.config/sensitive.env
 
-# Generated for envman. Do not edit.
-[ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
