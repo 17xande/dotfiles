@@ -83,8 +83,6 @@ plugins=(
   fzf
 )
 
-export FZF_BASE=/home/linuxbrew/.linuxbrew/opt/fzf
-
 source $ZSH/oh-my-zsh.sh
 
 # User configuration
@@ -132,7 +130,6 @@ export PATH="/home/alex/.local/bin:$PATH"
 
 alias python="python3"
 
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
 
 # source sensitive variables.
