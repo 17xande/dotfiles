@@ -119,6 +119,7 @@ export PATH="$DENO_INSTALL/bin:$PATH"
 # deno end
 
 # go
+export PATH=$PATH:$HOME/go/bin
 export PATH=$PATH:$HOME/.local/opt/go/bin
 # go end
 
