@@ -81,6 +81,7 @@ plugins=(
   zsh-syntax-highlighting
   #zsh-vi-mode
   fzf
+  mise
 )
 
 source $ZSH/oh-my-zsh.sh
@@ -113,16 +114,6 @@ fi
 
 export BROWSER=wslview
 
-# deno
-export DENO_INSTALL="$HOME/.deno"
-export PATH="$DENO_INSTALL/bin:$PATH"
-# deno end
-
-# go
-export PATH=$PATH:$HOME/go/bin
-export PATH=$PATH:$HOME/.local/opt/go/bin
-# go end
-
 # rust
 export PATH="$PATH:$HOME/.cargo/bin"
 # rust end
@@ -131,15 +122,19 @@ export PATH="/home/alex/.local/bin:$PATH"
 
 alias python="python3"
 
-
-
 # source sensitive variables.
 source ~/.config/sensitive.env
 
-
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
 # Generated for envman. Do not edit.
 [ -s "$HOME/.config/envman/load.sh" ] && source "$HOME/.config/envman/load.sh"
+
+autoload -Uz compinit
+compinit
+
+# pnpm
+export PNPM_HOME="/home/alex/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
