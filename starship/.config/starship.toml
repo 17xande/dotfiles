@@ -19,3 +19,6 @@ format = 'underwent [$duration](bold yellow)'
 truncation_length = 255
 truncate_to_repo = false
 use_logical_path = false
+
+[nodejs]
+detect_files = ['package.json', '.node-version', '!bunfig.toml', '!bun.lockb', '!deno.jsonc']
