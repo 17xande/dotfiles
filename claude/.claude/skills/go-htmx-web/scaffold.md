@@ -4,6 +4,10 @@ Concrete starting files. Replace `myapp` throughout. These are working shapes, n
 templates to follow blindly — drop what a given project has no use for (mailpit if it sends
 no mail, minio if it stores no files).
 
+Most of this file assumes Postgres. **On SQLite, skip the sqlc/goose/compose-Postgres
+parts and use "The SQLite variant" at the end instead**; the Dockerfile, styles, layout
+and htmx sections apply either way.
+
 ## Dockerfile
 
 Multi-stage → distroless. Everything the runtime needs is `go:embed`ed, so the final image
@@ -446,3 +450,124 @@ Download the release into `internal/handler/static/htmx.min.js` alongside
 
 No CDN link: it would mean widening `script-src` and putting a request to someone else's
 server on every page, including the ones in a payment path.
+
+
+## The SQLite variant
+
+Replaces `sqlc.yaml`, the migration/query files, and the Postgres service in
+`compose.yaml`. Reasoning is in `sqlite.md`; this is the shape.
+
+### internal/db/db.go
+
+```go
+// Every table is STRICT: SQLite otherwise applies type affinity and will happily
+// store "banana" in an INTEGER column. Every column is therefore TEXT or INTEGER
+// -- a column typed BOOLEAN, VARCHAR(n) or DATETIME is a startup failure, which
+// is the point. Timestamps are RFC3339 TEXT; SQLite has no datetime type.
+//
+// STRICT cannot be retrofitted: CREATE TABLE IF NOT EXISTS ... STRICT silently
+// does nothing to a table that already exists and reports success. A database
+// predating it must be recreated, not migrated.
+const schema = `
+CREATE TABLE IF NOT EXISTS submissions (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	email      TEXT NOT NULL,
+	email_sent INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions(created_at);
+`
+
+// Open opens the database at path (creating it if needed), enables foreign key
+// enforcement, and applies the schema. IF NOT EXISTS throughout, so it is safe on
+// every startup.
+//
+// There is deliberately no migration machinery: a schema change means dropping the
+// database and re-seeding (`make recreate-db`). Config is reproducible from
+// data/*.json, and a startup ALTER against a STRICT table can only half-migrate --
+// new column, old table definition.
+func Open(path string) (*sql.DB, error) {
+	// _foreign_keys=on because SQLite enforces no foreign key without it: every
+	// REFERENCES in the schema above is decoration until this is set.
+	dsn := fmt.Sprintf("file:%s?_foreign_keys=on", path)
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	return db, nil
+}
+```
+
+### internal/db/db_test.go
+
+The DDL can lie, so assert against `sqlite_master`:
+
+```go
+func TestEveryTableIsStrict(t *testing.T) {
+	d := openTemp(t)
+	rows, err := d.Query(`SELECT name, sql FROM sqlite_master
+	                      WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+	// ... fail any ddl without ") STRICT"
+	// Guard against passing vacuously if the schema stops applying:
+	if seen < wantTables {
+		t.Errorf("found %d tables, want at least %d", seen, wantTables)
+	}
+}
+```
+
+Pair it with one test that a wrong type is actually refused, and one that the Go
+types the stores bind (`bool` → INTEGER, nil `*string` → NULL) still round-trip.
+
+### Store shape
+
+No sqlc. Hand-written typed methods on a `Store` holding `*sql.DB`, with the
+create/guard statements atomic:
+
+```go
+// Create inserts s only if its id is free, reporting whether it did. Unlike
+// Upsert it can never overwrite, and the check and the write are one statement --
+// which a FindByID-then-Upsert pair is not.
+func (s *Store) Create(row Row) (bool, error) {
+	res, err := s.db.Exec(`INSERT INTO t (...) VALUES (...)
+	                       ON CONFLICT(id) DO NOTHING`, ...)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+```
+
+### Makefile targets
+
+```make
+## seed: insert-only load from data/*.json -- an edited row is left alone
+seed:
+	go run ./cmd/seed
+
+## seed-force: reload from JSON, overwriting existing rows
+seed-force:
+	go run ./cmd/seed -force
+
+## export: write the DB's current config back out in the shape seed reads
+export:
+	go run ./cmd/export
+
+## recreate-db: drop and re-seed. DESTROYS submissions -- the schema-change path.
+recreate-db:
+	rm -f data/app.db data/app.db-wal data/app.db-shm
+	go run ./cmd/seed
+```
+
+`compose.yaml` keeps `mailpit` (and `minio` if used) and drops the `db` service; the
+database is a file on a mounted volume.
