@@ -42,15 +42,15 @@ The single most important rule is at the bottom: **never decide a dependency by 
 Stated first because burying them at the bottom demonstrably does not work — this section
 exists because both were mentioned in passing and both were still skipped.
 
-**gopls, via the LSP tool — not grep — for anything about Go symbols.** Load the `go-lsp`
-skill for the full workflow. Reach for it *before*:
+**gopls — not grep — for anything about Go symbols.** Load the `go-lsp` skill for the
+full workflow (gopls MCP tools; in Claude Code the `LSP` tool is the fallback). Reach for it *before*:
 
 - renaming or changing the signature of anything exported;
 - deleting a function or type — `findReferences` first, so "unused" is a fact;
 - exploring an unfamiliar package's API (`documentSymbol`, `hover`);
 - asking "where is this used" or "did that break anything".
 
-ripgrep is for non-Go text. The Edit tool is for file text. Neither is a substitute for
+ripgrep is for non-Go text. The file-edit tool is for file text. Neither is a substitute for
 the LSP when the question is about a *symbol*.
 
 **The Chrome DevTools MCP server for every UI change.** Not a screenshot as an
@@ -262,7 +262,8 @@ form — at desktop *and* phone widths, and check for a horizontally scrolling b
 ## Working style
 
 
-- **A phased plan, in a file outside the repo** (`~/.claude/plans/<name>.md`). Build one
+- **A phased plan, in a file outside the repo** (`~/.claude/plans/<name>.md` —
+  the same place whichever agent you are, so the trail survives switching). Build one
   phase at a time, each ending in a working, tested, committed state. Keep the plan out of
   the codebase. **Record each phase's outcome back into the plan** — what shipped, what the
   review found, and what the next phase must not repeat. That written trail is what stops
@@ -278,8 +279,8 @@ form — at desktop *and* phone widths, and check for a horizontally scrolling b
   reasoning behind a trade-off. Bodies are prose, not bullet dumps.
 - Comments explain *why* — the trade-off, the rejected alternative, the non-obvious
   constraint. The README carries the dependency rationale, not just a list.
-- Tooling is not a preference — see "Tools" at the top of this file. gopls via the LSP
-  tool for Go symbols, Chrome DevTools MCP for every UI change.
+- Tooling is not a preference — see "Tools" at the top of this file. gopls (the `go-lsp`
+  skill) for Go symbols, Chrome DevTools MCP for every UI change.
 
 ## The rule that overrides convenience
 
