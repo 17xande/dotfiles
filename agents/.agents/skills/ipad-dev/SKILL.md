@@ -16,8 +16,9 @@ xtool is already signed in (credentials aren't in `~/.local/share/xtool`; don't 
 ## Layout
 - `Package.swift`: the app (one `.library` product `MusicPractice`, SwiftUI).
   Depends on `MusicCore/` by path.
-- `MusicCore/`: a platform-free package (Foundation only) holding theory, grading
-  engines and models. Its tests run **on Linux**.
+- `MusicCore/`: a platform-free package holding theory, grading engines, models and
+  song scoring/import. It depends on `../../ScoreKit` (which uses ZIPFoundation), so
+  it is no longer Foundation-only. Its tests run **on Linux**.
 - `xtool.yml`, `Info.plist` (partial, merged over xtool defaults), `Icon.png`.
 - `.gitignore` uses `.build/` (not `/.build`) so `MusicCore/.build` stays out.
 
@@ -27,14 +28,14 @@ All scripts live in the app repo (`scripts/`) and need no sudo, no tunneld and n
 # Logic tests (fast, Linux host)
 cd MusicCore && swift test
 
-# Build + sign + install + relaunch + wait for the debug server (~20 s). Run from the repo root.
+# Build + sign + install + relaunch + wait for the debug server (10-25 s incremental). Run from the repo root.
 scripts/deploy.sh              # add --log to stream the app's syslog to ~/tmp/app.log
-                               # --no-build reinstalls xtool/*.app; --streaming uses the streaming installer;
-                               # --xtool-run falls back to `xtool dev run`
+                               # --no-build reinstalls the signed xtool/*.app; --streaming uses the streaming installer
 scripts/shot.sh NAME [25%]     # screenshot -> ~/tmp/shots/NAME.png (+ NAME-s.png resized); Read it
 scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientation (see "Touch")
 ```
-- `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` that a plain `xtool dev build` leaves in `xtool/` can't be installed), installs with `pymobiledevice3 apps install --developer`, mounts the DDI if needed, relaunches with `core-device launch-application --kill-existing`, starts the `usbmux forward` if it isn't running, and polls `/ping`.
+- `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` that a plain `xtool dev build` leaves in `xtool/` can't be installed), then: mounts the DDI (`mounter auto-mount --userspace`, a no-op when mounted), stops the app (`/quit` if the debug server answers, else `dvt pkill --bundle`), installs with `pymobiledevice3 apps install --developer`, launches with `core-device launch-application`, starts the `usbmux forward` if nothing listens on 8765, and polls `/ping` (prints `ready in Ns: page=...`). Verified end to end 2026-10-08 on all three paths (app running → `/quit`; app not running → `dvt pkill`; `--no-build`).
+- If the build fails, deploy.sh prints up to the first 5 `error:` lines from the log (none if the failure has no `error:` line; see `~/tmp/deploy.log`) and then `FAILED: build`. A build broken by someone else's in-progress `MusicCore` edit is not yours to fix; report it.
 - The old "swipe out of the app during Installing" stall is gone with this path: `apps install` replaces the foreground app without help. (`xtool install` and `xtool dev run` still stall that way; `device-run.sh` uses them.)
 - xtool prefixes the bundle id: the installed id is `XTL-2CWY6D3Y7M.dev.alexf.MusicPractice`.
 - If you hit `Too many open files`, run `ulimit -n 65536` first (the script does).
@@ -44,12 +45,12 @@ scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientatio
 ## Seeing the iPad
 P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C`.
 
-**No tunneld and no root.** With pymobiledevice3 >= 11.26, developer commands fall back to an in-process userspace tunnel on their own (a warning says so; pass `--userspace` to skip the first failed attempt). The DDI mount is once per boot and idempotent: `$P mounter auto-mount --udid $U`.
+**No tunneld and no root.** With pymobiledevice3 >= 11.26, developer commands fall back to an in-process userspace tunnel on their own (a warning says so; pass `--userspace` to skip the first failed attempt). The DDI mount is once per boot and idempotent: `$P mounter auto-mount --udid $U --userspace` (verified rootless when already mounted; a fresh post-reboot mount is not yet verified rootless. The DDI can't be unmounted to test it: `umount-personalized` fails with "Failed to unload launchd jobs").
 - `--udid U` is accepted by `dvt`, `accessibility`, `mounter`, `apps`, `syslog`, `usbmux forward`.
 - `developer core-device ...` subcommands do **not** take `--udid`. Use `export PYMOBILEDEVICE3_UDID=$U` (or rely on there being only one device).
 - Each command in the Bash tool is a fresh shell, so set the variable in the same command.
 
-**Screenshots:** `scripts/shot.sh NAME`, or `$P developer dvt screenshot ~/tmp/shots/NAME.png --udid $U`, then Read the PNG.
+**Screenshots:** `scripts/shot.sh NAME`, or `$P developer dvt screenshot ~/tmp/shots/NAME.png --udid $U --userspace`, then Read the PNG (~2 s).
 - PNGs are 1908×2746 in portrait and 2746×1908 in landscape (they follow the device orientation).
 - The debug server's `/tree` reports points; screenshot pixels = points × 2.
 
@@ -57,8 +58,8 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 
 **Other ways to look:**
 - Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn MusicPractice`. Debug commands log under category `debug`.
-- UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items --udid $U` works unprivileged but returns only captions and ids, with no frames.
-- LLDB: `cd ~/dev/music-practice-app && ~/dev/omarchy-apple-dev/device-run.sh --lldb` is sudo-free now (userspace tunnel); `--lldb --sudo` is the old path. See "LLDB" below.
+- UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` (with `PYMOBILEDEVICE3_UDID` set) works unprivileged but returns only captions and ids, with no frames.
+- LLDB: **not working without sudo yet.** `pymobiledevice3 developer debugserver lldb` refuses the userspace tunnel by design. `debugserver start-server --local-port N --userspace` forwards fine (raw gdb-remote packets get answers), but Linux lldb stalls after `process connect`. The uncommitted `device-run.sh --lldb` WIP in omarchy-apple-dev is unverified. Notes: `~/tmp/lldb-userspace-notes.md`. The old sudo path (`device-run.sh --lldb` at HEAD, kernel tunnel) needs the user.
 
 ## Touch
 `scripts/tap.sh PX PY` sends a real touch (`core-device universal-hid-service tap`) at screenshot pixel coordinates. HID coordinates are 0..65535 in a frame that rotates with the orientation; tap.sh reads `currentOrientation` and converts. All four orientations were verified on the iPad. `scripts/tap.sh --frac FX FY` takes fractions of the upright screen (the `fx=`/`fy=` columns in `/tree`). Use `/tap?id=` first (no coordinates needed); use tap.sh for things accessibility can't activate (e.g. UIKit menu items, keyboard keys).
@@ -108,7 +109,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `autoplay?wrong=0.15&gap=120&jitter=15&offset=25` | play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
 
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
-UI commands (`quit`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` but SwiftUI doesn't surface them, so tap them by label (`tap?id=Progress`).
+UI commands (`quit`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
 App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
 
 ## Verify loop for UI work
@@ -129,7 +130,7 @@ App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`reg
 - **Symptoms:** `device-run.sh` says "Pairing needed", or hangs at step 3 (`xtool devices`); `pymobiledevice3 usbmux list` is empty; `lsusb` still shows the iPad.
 - **Check:** `systemctl is-active usbmuxd`. If it says `failed`, see why with `journalctl -u usbmuxd`.
 - **Known crash:** usbmuxd 1.1.1 logs "Sending to client fd N failed: Broken pipe" and then "free(): invalid pointer", and dumps core. It happens when a client is killed mid-request, e.g. a stopped agent or a `timeout` around a device command.
-- **Fix:** the user runs `sudo systemctl restart usbmuxd`; never run sudo yourself. Hung xtool calls continue afterwards. If the daemon restarted, restart the usbmux forwarder too.
+- **Fix:** the user runs `sudo systemctl restart usbmuxd`; never run sudo yourself. Hung xtool calls continue afterwards. If the daemon restarted, restart the usbmux forwarder too: find the stale one with `pgrep -f "usbmux forward"` and `kill` it (safe: it is idle, unlike a streaming client such as `syslog live`), then rerun `scripts/deploy.sh`, which starts a fresh one.
 - **Prevention:** don't kill device commands mid-flight. Give them generous timeouts rather than short `timeout` wrappers.
 - If the iPad gets unplugged (e.g. moved to a MIDI keyboard), usbmuxd exits cleanly. Plugging back in starts it again; rerun `scripts/deploy.sh` (or just restart the forwarder).
 - `xtool install` / `xtool dev run` stall at `[Installing] 100%` while the app is in the foreground, until someone swipes home. Don't use them; `scripts/deploy.sh` uses `apps install`, which doesn't. Don't kill a stalled xtool: killing a client mid-request can crash usbmuxd.
