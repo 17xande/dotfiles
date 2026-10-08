@@ -33,6 +33,7 @@ scripts/deploy.sh              # add --log to stream the app's syslog to ~/tmp/a
                                # --no-build reinstalls the signed xtool/*.app; --streaming uses the streaming installer
 scripts/shot.sh NAME [25%]     # screenshot -> ~/tmp/shots/NAME.png (+ NAME-s.png resized); Read it
 scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientation (see "Touch")
+scripts/crashes.sh             # newest crash report -> ~/tmp/crashes/, symbolicated summary (see "Crash reports")
 ```
 - `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` that a plain `xtool dev build` leaves in `xtool/` can't be installed), then: mounts the DDI (`mounter auto-mount --userspace`, a no-op when mounted), stops the app (`/quit` if the debug server answers, else `dvt pkill --bundle`), installs with `pymobiledevice3 apps install --developer`, launches with `core-device launch-application`, starts the `usbmux forward` if nothing listens on 8765, and polls `/ping` (prints `ready in Ns: page=...`). Verified end to end 2026-10-08 on all three paths (app running → `/quit`; app not running → `dvt pkill`; `--no-build`).
 - If the build fails, deploy.sh prints up to the first 5 `error:` lines from the log (none if the failure has no `error:` line; see `~/tmp/deploy.log`) and then `FAILED: build`. A build broken by someone else's in-progress `MusicCore` edit is not yours to fix; report it.
@@ -60,6 +61,15 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 - Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn MusicPractice`. Debug commands log under category `debug`.
 - UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` (with `PYMOBILEDEVICE3_UDID` set) works unprivileged but returns only captions and ids, with no frames.
 - LLDB: **not working without sudo yet.** `pymobiledevice3 developer debugserver lldb` refuses the userspace tunnel by design. `debugserver start-server --local-port N --userspace` forwards fine (raw gdb-remote packets get answers), but Linux lldb stalls after `process connect`. The uncommitted `device-run.sh --lldb` WIP in omarchy-apple-dev is unverified. Notes: `~/tmp/lldb-userspace-notes.md`. The old sudo path (`device-run.sh --lldb` at HEAD, kernel tunnel) needs the user.
+
+## Crash reports
+`scripts/crashes.sh` (`-n N` for the newest N, `--all` lists the device's MusicPractice reports, `--watch` streams new ones, `FILE.ips` re-reads a local one). It runs `crash flush`, `crash pull -m 'MusicPractice-.*\.ips'` into `~/tmp/crashes/`, then prints exception, termination, the crashed thread's backtrace, and file:line plus the source line for MusicPractice frames (marked `>`). Verified 2026-10-08 with `crash?kind=fatal`.
+- Reports are `MusicPractice-<date>.ips` (JSON) on the device under `/` (`pymobiledevice3 crash ls`). They appear within a few seconds of the crash.
+- Symbolication: the xtool binary has no DWARF of its own, only a debug map to `.build/**.o`. The script runs `dsymutil` on it into `~/tmp/dsym/<uuid>.dSYM` and feeds `llvm-symbolizer` (frame > 0 uses addr-1).
+- It matches the report's image UUID against `xtool/MusicPractice.app/MusicPractice`. Every rebuild changes the UUID, so a crash from an older build gets a UUID-mismatch warning and device function names only. Read a crash before redeploying.
+- The report does not carry the `fatalError` message (no `asi`); the printed source line at the crash site does. For more, use `deploy.sh --log`.
+- `pymobiledevice3 crash watch --format json` is broken in 11.26.0 (TypeError); the script parses the text output.
+- A backgrounded `--watch` ignores SIGINT; stop it with a plain `kill` on the script and the `crash watch` child (idle, so usbmuxd survived in testing). From a terminal, Ctrl-C works.
 
 ## Touch
 `scripts/tap.sh PX PY` sends a real touch (`core-device universal-hid-service tap`) at screenshot pixel coordinates. HID coordinates are 0..65535 in a frame that rotates with the orientation; tap.sh reads `currentOrientation` and converts. All four orientations were verified on the iPad. `scripts/tap.sh --frac FX FY` takes fractions of the upright screen (the `fx=`/`fy=` columns in `/tree`). Use `/tap?id=` first (no coordinates needed); use tap.sh for things accessibility can't activate (e.g. UIKit menu items, keyboard keys).
@@ -99,6 +109,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `appearance?theme=light\|dark\|system` | theme override |
 | `audio` | engine running, sample rate, output latency, IO buffer |
 | `quit` | replies `bye`, then `exit(0)` 200 ms later (cold start next launch) |
+| `crash?kind=fatal` | `fatalError` on the main actor 200 ms after replying (exercise `scripts/crashes.sh`; the app dies, redeploy with `deploy.sh --no-build`) |
 | `tree[?all=1\|views=1]` | accessibility tree with ids, labels, traits, frames in points and `fx`/`fy` centre fractions. Includes UIKit chrome (nav bar) and open menus |
 | `tap?id=` | activate the element whose accessibilityIdentifier, label (exact, then substring) matches: `accessibilityActivate()`, else a UIControl `touchUpInside`, else selects the list row. UIKit menu items don't respond: use `scripts/tap.sh` |
 | `scroll?dy=400[&dx=][&id=]` | scroll the largest scrollable view (or the one containing element `id`) by dy points, clamped; replies the new offset |
@@ -109,7 +120,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `autoplay?wrong=0.15&gap=120&jitter=15&offset=25` | play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
 
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
-UI commands (`quit`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
+UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
 App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
 
 ## Verify loop for UI work
