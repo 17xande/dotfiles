@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "alex-local",
+  "description": "Personal Claude Code plugins",
+  "owner": { "name": "Alexandre Figueiredo" },
+  "plugins": [
+    {
+      "name": "deno-lsp",
+      "source": "./plugins/deno-lsp",
+      "description": "Deno language server for TypeScript/JavaScript code intelligence in Deno projects"
+    }
+  ]
+}

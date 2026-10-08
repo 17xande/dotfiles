@@ -27,3 +27,10 @@ skill individually rather than folding the directory. Skills installed by someth
 — omarchy symlinks its own in — are left alone, and an unversioned scratch skill can sit
 alongside these without stow touching it.
 
+
+## claude-plugins
+
+A personal Claude Code plugin marketplace (`alex-local`), not a stow package. Add it with
+`claude plugin marketplace add ~/dev/dotfiles/claude-plugins`, then
+`claude plugin install deno-lsp@alex-local`. `deno-lsp` is a language-server plugin; `deno lsp`
+is force-enabled (`initializationOptions.enable`) so it also covers Node projects.

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "deno-lsp",
+  "version": "0.1.1",
+  "description": "Deno language server for TypeScript/JavaScript code intelligence in Deno projects",
+  "author": { "name": "Alexandre Figueiredo" },
+  "lspServers": "./.lsp.json"
+}

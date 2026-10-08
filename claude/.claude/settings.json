@@ -8,13 +8,28 @@
     "caveman@caveman": true,
     "clangd-lsp@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": true,
-    "lua-lsp@claude-plugins-official": true
+    "lua-lsp@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "cloudflare@cloudflare": true,
+    "deno-lsp@alex-local": true
   },
   "extraKnownMarketplaces": {
     "caveman": {
       "source": {
         "source": "github",
         "repo": "JuliusBrussee/caveman"
+      }
+    },
+    "cloudflare": {
+      "source": {
+        "source": "github",
+        "repo": "cloudflare/skills"
+      }
+    },
+    "alex-local": {
+      "source": {
+        "source": "directory",
+        "path": "/home/alex/dev/dotfiles/claude-plugins"
       }
     }
   },
