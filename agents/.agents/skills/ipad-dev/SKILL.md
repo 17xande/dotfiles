@@ -61,7 +61,14 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 **Other ways to look:**
 - Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn MusicPractice`. Debug commands log under category `debug`.
 - UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` (with `PYMOBILEDEVICE3_UDID` set) works unprivileged but returns only captions and ids, with no frames.
-- LLDB (rootless, verified 2026-10-08): `~/dev/omarchy-apple-dev/device-run.sh --lldb`, which needs that checkout on the fork's `lldb-userspace` branch. It uses the userspace debugserver forwarder plus an async `process connect`; a batch-mode sync connect hangs. `target.memory-module-load-level minimal` keeps the attach to about 30 s, and system frames show only the library name. `--sudo` is the old kernel-tunnel path with full symbols, and it needs the user. Upstream `main` now has `--attach` (debug an installed app without reinstalling), but it isn't merged into `lldb-userspace` yet because it conflicts in `device-run.sh`.
+- LLDB (rootless, attach verified 2026-10-09): needs `~/dev/omarchy-apple-dev` on the fork's `lldb-userspace` branch (merged with upstream `main`). Run from the app repo root:
+  - `~/dev/omarchy-apple-dev/device-run.sh --lldb` builds, installs, launches the app suspended and attaches (33 s total). `--attach` skips build/stop/reinstall and attaches to the installed app, running or not (35 s).
+  - `LLDB_CMDS=$'bt\nprocess detach'` runs commands after the attach, in synchronous mode. End with `process detach`.
+  - Mechanism: the userspace debugserver forwarder plus an async `process connect` (a sync connect hangs). `LLDB_LOAD_LEVEL=minimal` (default) keeps the attach to about 30 s; `complete` gives full system symbols in minutes. `--sudo` is the old kernel-tunnel path with full symbols, and it needs the user.
+  - Verified: stopped process, `bt`, `thread list`, `process detach`, app symbols with file:line (`image lookup -r -n DebugServer`). System frames show only the library name.
+  - NOT yet verified: breakpoint hits (`continue`), `expr`/`po`, stepping, `--attach --sudo`.
+  - **usbmuxd crash:** every rootless session so far ended with usbmuxd aborting ("free(): invalid pointer") shortly after the detach. The next device command then fails with "Failed to connect to usbmuxd socket". Ask the user to run `sudo systemctl restart usbmuxd`, `kill` the stale `usbmux forward` (`pgrep -f`), then run a full `scripts/deploy.sh`. Plan for one restart per lldb session.
+  - After `device-run.sh`, `deploy.sh --no-build` fails with "not signed" (`xtool dev build` leaves the app unsigned). Use a full `deploy.sh`.
 
 ## Crash reports
 `scripts/crashes.sh` (`-n N` for the newest N, `--all` lists the device's MusicPractice reports, `--watch` streams new ones, `FILE.ips` re-reads a local one). It runs `crash flush`, `crash pull -m 'MusicPractice-.*\.ips'` into `~/tmp/crashes/`, then prints exception, termination, the crashed thread's backtrace, and file:line plus the source line for MusicPractice frames (marked `>`). Verified 2026-10-08 with `crash?kind=fatal`.
@@ -168,6 +175,7 @@ App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`reg
 - Page-level debug commands (e.g. Progress: `history`, `seed`, `unseed`, `reload`) only exist once that page has appeared. Run `/page?name=progress` first.
 
 ## Gotchas learned
+- If `deploy.sh` fails because the venv python is missing, `~/pymobile3-venv/bin/python3` must point at a mise python 3.14.x install: mise `latest` moves (it went to 3.15), which breaks the symlink.
 - `pkill -f 'device-run.sh'` (or any pattern on the command line) matches your own bash call and kills it (exit 144). Use `pgrep -f`, then `kill <pid>` in a separate call.
 - A finished `device-run.sh` sometimes stays alive after `Verifying 100%`. It's harmless; leave it rather than killing it.
 - `magick` (ImageMagick) is available for cropping screenshots; PIL is not.
