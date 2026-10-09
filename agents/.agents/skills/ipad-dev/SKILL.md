@@ -33,6 +33,7 @@ scripts/deploy.sh              # add --log to stream the app's syslog to ~/tmp/a
                                # --no-build reinstalls the signed xtool/*.app; --streaming uses the streaming installer
 scripts/shot.sh NAME [25%]     # screenshot -> ~/tmp/shots/NAME.png (+ NAME-s.png resized); Read it
 scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientation (see "Touch")
+scripts/container.sh ...       # read/write the app's sandbox files (see "App files")
 scripts/crashes.sh             # newest crash report -> ~/tmp/crashes/, symbolicated summary (see "Crash reports")
 ```
 - `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` that a plain `xtool dev build` leaves in `xtool/` can't be installed), then: mounts the DDI (`mounter auto-mount --userspace`, a no-op when mounted), stops the app (`/quit` if the debug server answers, else `dvt pkill --bundle`), installs with `pymobiledevice3 apps install --developer`, launches with `core-device launch-application`, starts the `usbmux forward` if nothing listens on 8765, and polls `/ping` (prints `ready in Ns: page=...`). Verified end to end 2026-10-08 on all three paths (app running → `/quit`; app not running → `dvt pkill`; `--no-build`).
@@ -70,6 +71,22 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 - The report does not carry the `fatalError` message (no `asi`); the printed source line at the crash site does. For more, use `deploy.sh --log`.
 - `pymobiledevice3 crash watch --format json` is broken in 11.26.0 (TypeError); the script parses the text output.
 - A backgrounded `--watch` ignores SIGINT; stop it with a plain `kill` on the script and the `crash watch` child (idle, so usbmuxd survived in testing). From a terminal, Ctrl-C works.
+
+## App files (container) from Linux
+`scripts/container.sh` reads/writes the app's sandbox (verified 2026-10-08/09, rootless, dev-signed app):
+```sh
+scripts/container.sh ls ["Library/Application Support/store"]   # no arg: Library, Documents, tmp
+scripts/container.sh pull "Library/Application Support/store" [local]   # default ~/tmp/container/<name>
+scripts/container.sh [--restart] push LOCAL "Library/Application Support/store/mp.v1.sessions.json"
+scripts/container.sh [--restart] rm REMOTE                      # recursive for dirs
+scripts/container.sh snapshot                                   # -> ~/tmp/container/snap-<ts>/Library/Application Support/...
+scripts/container.sh [--restart] restore ~/tmp/container/snap-<ts>
+```
+- Paths are relative to the container root. Data is in `Library/Application Support/store/mp.v1.*.json` (one JSON array/object per key: `sessions`, `songSessions`, `learn`, `settings`); songs will be in `Library/Application Support/songs/` + `songs-index.json`.
+- **Stop the app before writing**, or it overwrites your file on its next save and holds old data in memory. `--restart` does `curl :8765/quit`, the write, then `deploy.sh --no-build` (~10 s). Reads are safe while it runs. After a push, `/page?name=progress` then `/history` shows the new counts.
+- Works: `apps pull/push/rm` (house_arrest VendContainer): whole container, including Library/Application Support. `core-device list-directory/stat/read-file/write-file` (domain `appDataContainer --identifier BUNDLE`): only Library, Documents, tmp (root refused), and neither `write-file` nor `create-directory` makes parents. `create-directory` makes dirs with permissions 0 that AFC cannot enter; don't use it. Plain `pymobiledevice3 afc` is /var/mobile/Media only.
+- `apps pull DIR dest` puts the dir *inside* dest; `apps push FILE` fails on a missing parent, but `apps push DIR` creates directories (the script uses that trick). The script handles both.
+- Seeding recipe: pull `mp.v1.sessions.json`, append objects in the same shape (copy one, new `id`, marker `durationMs`), `push --restart`. Verified: 39 -> 40 sessions on the Progress page, then `restore` brought back a byte-identical file.
 
 ## Touch
 `scripts/tap.sh PX PY` sends a real touch (`core-device universal-hid-service tap`) at screenshot pixel coordinates. HID coordinates are 0..65535 in a frame that rotates with the orientation; tap.sh reads `currentOrientation` and converts. All four orientations were verified on the iPad. `scripts/tap.sh --frac FX FY` takes fractions of the upright screen (the `fx=`/`fy=` columns in `/tree`). Use `/tap?id=` first (no coordinates needed); use tap.sh for things accessibility can't activate (e.g. UIKit menu items, keyboard keys).
