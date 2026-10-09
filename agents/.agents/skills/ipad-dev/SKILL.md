@@ -143,6 +143,35 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `calibrate` | start latency measuring |
 | `autoplay?wrong=0.15&gap=120&jitter=15&offset=25` | play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
 
+**Song routes** (Songs page; `Sources/MusicPractice/Songs/SongsDebug.swift`; all errors start `error:`, no song open replies `no song open`):
+
+| Command | Effect |
+|---|---|
+| `songs` | library, one line per song: `id<TAB>title<TAB>composer<TAB>format<TAB>size`. Starter ids are `starter:<slug>` |
+| `song?id=ID` / `song?starter=SLUG` | open a song; replies the `songstate` line (unknown id -> error) |
+| `songstate` | one line: id, title, view mode, zoom, fingering, hands, sheet, step, entries, measures, phase |
+| `songview?mode=page\|line&zoom=0.6-2&fingering=0\|1&hands=both\|rh\|lh&sheet=auto\|light\|dark` | view settings (any subset) |
+| `songmode?mode=listen\|learn\|notes\|tempo\|rubato` | set the practice mode; replies the practice state |
+| `songsel?mode=&hands=&from=&to=&whole=1&tempo=&metronome=&other=&repeat=&flow=flow\|jump&latency=&leeway=&guide=` | selection and options (from/to are measures; 0 or `whole=1` clears the range) |
+| `songpractice` | practice state: mode, phase, step/steps, measure, range, tempo, plan, marks, results |
+| `songseek?step=N` / `?measure=N\|back\|forward` | move the play position (N = written measure inside the selection) |
+| `songplay[?step=K]` / `songstop[?pause=1]` | start/resume, stop/pause |
+| `songsimulate?offsetMs=&missEvery=&scale=&swing=&from=&wait=1` | play the run through the MIDI path; `wait=1` blocks until done and appends the result line. Tempo starts itself |
+| `songresult` | last finished run line + per-step `timing:` |
+| `songcalibrate[?tap=1&offsetMs=]` | start latency calibration, optionally tapping along |
+| `songimport?path=` / `songdelete?id=` | import a container-relative file / delete a song |
+| `tap?id=loop-weakest` | on the results card: practise the weakest 2-measure stretch (sets the range) |
+| `exportfile` / `importfile?name=` | export to `tmp/export.json` (pull with container.sh) / import `tmp/<name>`. Progress-page routes |
+
+`scripts/song-smoke.sh [-v]` drives the whole flow (list, open starter, view/mode/range, seek, Listen play/stop, simulated Notes and Tempo runs, result, loop weakest, export) and exits non-zero on the first failure (~40 s, 33 calls; writes disposable history).
+
+Song gotchas:
+- `songsimulate` and the `song*` routes only act while a song is open on the Songs page; they reply `no song open` otherwise. `/page?name=scales` (or progress) closes the song; reopen with `song?...`.
+- `exportfile`, `history`, `seed` exist only after `/page?name=progress`.
+- Simulated runs save real song sessions (`saved=true`); fine, history is disposable.
+- `songstate` 1 s after `songplay` in Listen has shown `phase=paused` intermittently.
+- Right after a reboot, `scripts/tap.sh` works again (verified 2026-10-09: `--frac` taps switched sidebar pages).
+
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
 UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
 App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
