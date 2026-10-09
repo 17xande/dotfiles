@@ -169,7 +169,7 @@ Song gotchas:
 - `songsimulate` and the `song*` routes only act while a song is open on the Songs page; they reply `no song open` otherwise. `/page?name=scales` (or progress) closes the song; reopen with `song?...`.
 - `exportfile`, `history`, `seed` exist only after `/page?name=progress`.
 - Simulated runs save real song sessions (`saved=true`); fine, history is disposable.
-- `songstate` 1 s after `songplay` in Listen has shown `phase=paused` intermittently.
+- Opening a song within ~300 ms of a page switch can get popped by the NavigationStack (`songstate` shows `id=-`); `song-smoke.sh` sleeps 1 s after `page?name=songs`. (The old intermittent `phase=paused` was a real bug, fixed 2026-10-09.)
 - Right after a reboot, `scripts/tap.sh` works again (verified 2026-10-09: `--frac` taps switched sidebar pages).
 
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
