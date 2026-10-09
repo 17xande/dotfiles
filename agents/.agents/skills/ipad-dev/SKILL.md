@@ -134,6 +134,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `audio` | engine running, sample rate, output latency, IO buffer |
 | `quit` | replies `bye`, then `exit(0)` 200 ms later (cold start next launch) |
 | `crash?kind=fatal` | `fatalError` on the main actor 200 ms after replying (exercise `scripts/crashes.sh`; the app dies, redeploy with `deploy.sh --no-build`) |
+| `corrupt?key=sessions\|songSessions\|learn\|settings\|songRanges\|library&kind=json\|record` | plant bad data on disk (`json`: the file becomes `{not json`; `record`: one bad record/field/entry is added, `library` also adds an entry with no file). Then `/quit` straight away and `deploy.sh --no-build`: the "Some saved data couldn't be read" alert shows. "Not now" leaves the files alone (alert returns next launch); "Delete it" cleans them. Tap its buttons with `tap.sh --frac` (`/tap?id=` can't activate alert buttons) |
 | `tree[?all=1\|views=1]` | accessibility tree with ids, labels, traits, frames in points and `fx`/`fy` centre fractions. Includes UIKit chrome (nav bar) and open menus |
 | `tap?id=` | activate the element whose accessibilityIdentifier, label (exact, then substring) matches: `accessibilityActivate()`, else a UIControl `touchUpInside`, else selects the list row. UIKit menu items don't respond: use `scripts/tap.sh` |
 | `scroll?dy=400[&dx=][&id=]` | scroll the largest scrollable view (or the one containing element `id`) by dy points, clamped; replies the new offset |
