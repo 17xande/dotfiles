@@ -154,6 +154,8 @@ App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`reg
 - I can't hear the device. Ask the user to listen when audio quality or timing matters by ear.
 - DEBUG builds enable a `MIDINetworkSession` (policy: anyone), which shows up as source "Network Session 1". From Linux, an RTP-MIDI client (e.g. `rtpmidid`) can connect to the iPad and play real MIDI into it. This is untested so far.
 
+- the iPad auto-locks after 10 min; DEBUG builds disable the idle timer while the app is foreground (`/awake?on=0|1`, `/state` shows `awake=`); it does not help if another app is in front. If the device is locked, ask the user to unlock.
+
 ## When the device stops responding
 - **Symptoms:** `device-run.sh` says "Pairing needed", or hangs at step 3 (`xtool devices`); `pymobiledevice3 usbmux list` is empty; `lsusb` still shows the iPad.
 - **Check:** `systemctl is-active usbmuxd`. If it says `failed`, see why with `journalctl -u usbmuxd`.
