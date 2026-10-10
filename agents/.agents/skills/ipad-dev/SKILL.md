@@ -33,6 +33,7 @@ scripts/deploy.sh              # add --log to stream the app's syslog to ~/tmp/a
                                # --no-build reinstalls the signed xtool/*.app; --streaming uses the streaming installer
 scripts/shot.sh NAME [25%]     # screenshot -> ~/tmp/shots/NAME.png (+ NAME-s.png resized); Read it
 scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientation (see "Touch")
+scripts/drag.sh PX1 PY1 PX2 PY2 [SECS]   # real drag, same pixel coordinates (resize the keyboard drawer, etc.)
 scripts/container.sh ...       # read/write the app's sandbox files (see "App files")
 scripts/crashes.sh             # newest crash report -> ~/tmp/crashes/, symbolicated summary (see "Crash reports")
 ```
@@ -154,6 +155,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `songs` | library, one line per song: `id<TAB>title<TAB>composer<TAB>format<TAB>size`. Starter ids are `starter:<slug>` |
 | `song?id=ID` / `song?starter=SLUG` | open a song; replies the `songstate` line (unknown id -> error) |
 | `songstate` | one line: id, title, view mode, zoom, fingering, hands, sheet, step, entries, measures, phase |
+| `keyboard?height=N\|hide=1\|show=1` | the keyboard drawer (Songs and Scales share it; registered once a drawer is on screen). Height 90..half the screen, in points; persists in UserDefaults `keyboardHeight`/`keyboardHidden`. Replies `keyboard height= hidden= min= max=`; no args just reports |
 | `songview?mode=page\|line&zoom=0.6-2&fingering=0\|1&hands=both\|rh\|lh&sheet=auto\|light\|dark` | view settings (any subset) |
 | `songmode?mode=listen\|learn\|notes\|tempo\|rubato` | set the practice mode; replies the practice state |
 | `songsel?mode=&hands=&from=&to=&whole=1&tempo=&metronome=&other=&repeat=&flow=flow\|jump&latency=&leeway=&guide=` | selection and options (from/to are measures; 0 or `whole=1` clears the range) |
