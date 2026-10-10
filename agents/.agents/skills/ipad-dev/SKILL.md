@@ -61,7 +61,7 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 **Other ways to look:**
 - Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn MusicPractice`. Debug commands log under category `debug`.
 - UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` (with `PYMOBILEDEVICE3_UDID` set) works unprivileged but returns only captions and ids, with no frames.
-- LLDB (rootless, attach verified 2026-10-09): needs `~/dev/omarchy-apple-dev` on the fork's `lldb-userspace` branch (merged with upstream `main`). Run from the app repo root:
+- LLDB (rootless, attach verified 2026-10-09): needs `~/dev/omarchy-apple-dev` on `main` (upstream has `--lldb`/`--attach` since PR #10; its FINDINGS 67 now holds these recipes; the fork's `lldb-userspace` is redundant). Run from the app repo root:
   - `~/dev/omarchy-apple-dev/device-run.sh --lldb` builds, installs, launches the app suspended and attaches (33 s total). `--attach` skips build/stop/reinstall and attaches to the installed app, running or not (35 s).
   - `LLDB_CMDS=$'bt\nprocess detach'` runs commands after the attach, in synchronous mode. End with `process detach`.
   - Mechanism: the userspace debugserver forwarder plus an async `process connect` (a sync connect hangs). `LLDB_LOAD_LEVEL=minimal` (default) keeps the attach to about 30 s; `complete` gives full system symbols in minutes. `--sudo` is the old kernel-tunnel path with full symbols, and it needs the user.
