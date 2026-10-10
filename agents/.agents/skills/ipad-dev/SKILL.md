@@ -176,6 +176,17 @@ Song gotchas:
 - Songs opens by view switch (not a NavigationStack push) since 2026-10-09, so opening right after a page switch is safe. The back button is `tap?id=song-back`. `openurl?path=<container path>` drives the "Open in" import-and-open path.
 - Right after a reboot, `scripts/tap.sh` works again (verified 2026-10-09: `--frac` taps switched sidebar pages).
 
+**Sync routes** (accounts and history sync, A7; `AppModel.registerSyncCommands`; the web server is `https://music.17xande.dev`, override in DEBUG with the `syncBaseURL` user default):
+
+| Command | Effect |
+|---|---|
+| `sync` | runs a sync now; replies `ok(changed: ...)`, `off`, `signedOut`, `offline` or `error(...)`, plus cursor and pending counts |
+| `syncstate` | `mp.v1.sync` as JSON plus `token` (`absent` or `<redacted>`, never the value) and the last message |
+| `signin?email=&password=[&upload=1]` | sign in (URL-encode the password; the debug log redacts it). `upload=1` queues every local run, as the "Add this iPad's N runs?" prompt's Yes. It does not sync: call `sync` next |
+| `signout` | `DELETE /api/token`, then forget the token and `mp.v1.sync`; history stays |
+
+Gotchas: `seed`/`unseed`/`songsimulate` write real history, which syncs while signed in (`unseed` does clear + re-import, which queues deletes for the account). Test only with the throwaway account in `~/tmp/mp-test-account`; never echo its password.
+
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
 UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
 App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
