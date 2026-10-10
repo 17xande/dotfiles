@@ -189,6 +189,18 @@ Song gotchas:
 
 Gotchas: `seed`/`unseed`/`songsimulate` write real history, which syncs while signed in (`unseed` removes only the seeded runs and queues just those as deletions). Test only with the throwaway account in `~/tmp/mp-test-account`; never echo its password.
 
+**Profile routes** (multiple local accounts, A8; `AppModel.registerProfileCommands`). Each profile has its own history, settings, song ranges, last song/page, sync state and Keychain token (account attribute = profile id); the song library is shared. Storage keys are prefixed `p-<id>.` (files `store/p-<id>.mp.v1.*.json`; the index is `store/mp.ipad.profiles.json`). `corrupt` plants into the active profile.
+
+| Command | Effect |
+|---|---|
+| `profiles` | one line per profile: `*` marks the active one, then id, name, `local` or the signed-in email |
+| `profile?add=NAME` | add a profile (does not switch); replies the new id and the list |
+| `profile?switch=ID` | switch: stops runs, reloads every model, syncs the new profile if signed in |
+| `profile?delete=ID` | delete a profile and its data (active one: switches to another first; the last one is refused); revokes its token best effort |
+| `profile?rename=ID&name=NAME` | rename |
+
+UI: the picker is the first row of the sidebar (`profile-menu`; UIKit menu, open it with `scripts/tap.sh`), "Manage accounts..." opens the sheet. Gotcha: `signin`/`sync`/`syncstate` act on the active profile, so switch first.
+
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
 UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
 App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
