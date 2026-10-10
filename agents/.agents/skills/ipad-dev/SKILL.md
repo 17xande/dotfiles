@@ -185,7 +185,7 @@ Song gotchas:
 | `signin?email=&password=[&upload=1]` | sign in (URL-encode the password; the debug log redacts it). `upload=1` queues every local run, as the "Add this iPad's N runs?" prompt's Yes. It does not sync: call `sync` next |
 | `signout` | `DELETE /api/token`, then forget the token and `mp.v1.sync`; history stays |
 
-Gotchas: `seed`/`unseed`/`songsimulate` write real history, which syncs while signed in (`unseed` does clear + re-import, which queues deletes for the account). Test only with the throwaway account in `~/tmp/mp-test-account`; never echo its password.
+Gotchas: `seed`/`unseed`/`songsimulate` write real history, which syncs while signed in (`unseed` removes only the seeded runs and queues just those as deletions). Test only with the throwaway account in `~/tmp/mp-test-account`; never echo its password.
 
 Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
 UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
