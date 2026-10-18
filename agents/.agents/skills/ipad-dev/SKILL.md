@@ -1,15 +1,19 @@
 ---
 name: ipad-dev
-description: Build, test, deploy, screenshot and drive the Music Practice iPadOS app from Linux (xtool + pymobiledevice3 + the app's debug HTTP hooks). Load before building or deploying the app, running MusicCore tests, checking something on the iPad, reading device logs, taking a screenshot, or adding a debug command. Triggers: build, deploy, run on iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool, swift test.
+description: Build, test, deploy, screenshot and drive the Music Practice iPadOS app from Linux (xtool + pymobiledevice3 + the app's debug HTTP hooks). Load before building or deploying the app, running MusicCore tests, checking something on the iPad, reading device logs, taking a screenshot, or adding a debug command. Triggers: build, deploy, run on iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool, swift test, crash, LLDB, "without the cable", tailnet, Tailscale, wireless.
 ---
 
 # Music Practice iPad dev loop (Linux host)
 
 Toolchain: `~/dev/omarchy-apple-dev` (xtool + Swift 6.4 + iPhoneOS 27 SDK). Its
-README/GETTING-STARTED/FINDINGS.md are the authority on toolchain problems.
+README/GETTING-STARTED/FINDINGS.md are the authority on toolchain problems; CHANGELOG.md lists what
+changed per release (synced with upstream `joshuaswarren/omarchy-apple-dev` at v0.4.0+, 2026-10-18).
+`git -C ~/dev/omarchy-apple-dev pull upstream main` (fast-forward) picks up new device-run.sh/tools work.
 
 Device: "iPad Xande", iPad15,3, iPadOS 27.0.1, UDID `00008122-001259DE26E8401C`.
-USB only (wireless deploy doesn't work from Linux on iOS 26+). Developer Mode is on.
+USB is the working path for everything below. Wi-Fi via mDNS (`device-run.sh --network`) is blocked for
+Linux hosts, but iOS 27 allows a cable-free route over Tailscale (see "Without the cable"; not set up yet
+for this iPad). Developer Mode is on.
 xtool is already signed in (credentials aren't in `~/.local/share/xtool`; don't run
 `xtool auth` again). Free Apple ID: the install expires after 7 days, so redeploy.
 
@@ -74,6 +78,27 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
   - **usbmuxd crash:** 3 of the first 5 rootless sessions ended with usbmuxd aborting ("free(): invalid pointer") after the detach or as the next session started. Since 2026-10-09 a drop-in (`/etc/systemd/system/usbmuxd.service.d/override.conf`: `Restart=on-failure`, `RestartSec=1`, `StartLimitIntervalSec=0`) restarts it on its own. If a device command fails with "Failed to connect to usbmuxd socket", wait a few seconds, check `systemctl show usbmuxd -p ActiveState -p NRestarts`, then run a full `scripts/deploy.sh`, which starts a fresh forwarder. Ask the user for `sudo systemctl restart usbmuxd` only if it stays down. Don't `pkill -f "usbmux forward"` from a Bash tool call: the pattern matches the tool's own shell and kills it. Use `pgrep -f "[u]sbmux forward"`.
   - After `device-run.sh`, `deploy.sh --no-build` fails with "not signed" (`xtool dev build` leaves the app unsigned). Use a full `deploy.sh`.
 
+## Without the cable (Tailscale, iOS 27; NOT set up for this iPad yet)
+Upstream (`docs/OVER-TAILNET.md`, measured on an iPhone with iOS 27.0.1, not on this iPad) drives a phone over Tailscale with no
+cable and no Mac: install, launch, screenshot, syslog, LLDB. The iPad is on the tailnet as `ipadm3`
+(`tailscale status`, the `iOS` line; 100.103.72.35 when last checked). mDNS is not used: you pass the IP.
+- One-time, iPad on USB and unlocked, Tailscale app connected: `~/pymobile3-venv/bin/python ~/dev/omarchy-apple-dev/tools/tailnet-tunnel.py pair`
+  (no tap needed). It writes `~/.local/share/pymobiledevice3/remote_<udid>.plist`, which is a credential (mode 600; don't copy it around casually).
+  Needs Python >= 3.13 with TLS-PSK ciphers; the venv's mise 3.14.8 has them (`ssl.SSLContext.set_psk_client_callback` present).
+- The tunnel needs a TUN device: the tool uses `sudo -n`, so ask the user to run `sudo -v` first (never sudo yourself). Then
+  `~/pymobile3-venv/bin/python ~/dev/omarchy-apple-dev/tools/tailnet-tunnel.py 100.x.y.z --hold 600` prints `RSD fd..::1 PORT`;
+  every pymobiledevice3 command takes `--rsd fd..::1 PORT` instead of `--udid`/USB.
+- `~/dev/omarchy-apple-dev/device-run.sh --over-tailnet 100.x.y.z xtool/MusicPractice.app` installs and launches a signed build
+  (after `scripts/deploy.sh` or `xtool dev build --sign`; a plain `xtool dev build` leaves it unsigned). Add `--console [SECS]`
+  for the app's stdout/stderr plus `running after N s` / `fatal text seen`, and `--symbolicate [DIR]` to pull and print crash
+  reports afterwards. Both flags also work on `--rsd`, not on the USB mode.
+- `scripts/deploy.sh`, `shot.sh`, `tap.sh`, `container.sh`, `crashes.sh` and the 8765 `usbmux forward` are USB-only today;
+  they would need `--rsd` variants (and a different port forward for the debug server) to work this way.
+- Limits: the iPad needs Wi-Fi (cellular-only closes the port) and the Tailscale VPN on. Screen off and idle for hours: screenshots
+  are black and launches fail (code 10002), so wake it to the lock screen first. Screenshots show whatever is on screen.
+  LLDB over the tunnel needs a sysroot from the IPSW (`~/.cache/omarchy-apple-dev/DeviceSupport/...`) and about 220 s to reach
+  `main` (see the doc). The USB `--lldb`/`--attach` path below is much faster.
+
 ## Crash reports
 `scripts/crashes.sh` (`-n N` for the newest N, `--all` lists the device's MusicPractice reports, `--watch` streams new ones, `FILE.ips` re-reads a local one). It runs `crash flush`, `crash pull -m 'MusicPractice-.*\.ips'` into `~/tmp/crashes/`, then prints exception, termination, the crashed thread's backtrace, and file:line plus the source line for MusicPractice frames (marked `>`). Verified 2026-10-08 with `crash?kind=fatal`.
 - Reports are `MusicPractice-<date>.ips` (JSON) on the device under `/` (`pymobiledevice3 crash ls`). They appear within a few seconds of the crash.
@@ -82,6 +107,9 @@ P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C
 - The report does not carry the `fatalError` message (no `asi`); the printed source line at the crash site does. For more, use `deploy.sh --log`.
 - `pymobiledevice3 crash watch --format json` is broken in 11.26.0 (TypeError); the script parses the text output.
 - A backgrounded `--watch` ignores SIGINT; stop it with a plain `kill` on the script and the `crash watch` child (idle, so usbmuxd survived in testing). From a terminal, Ctrl-C works.
+- Upstream also has `~/dev/omarchy-apple-dev/tools/ips-symbolicate.py REPORT.ips --binary PATH [--binary ...]` (UUID match, symbol table only, no file:line).
+  `crashes.sh` is better for the app's own frames; use the tool for a report whose UUID no longer matches a dSYM-able build, or for
+  framework binaries. It prints mangled Swift names unless `swift-demangle` is on PATH.
 
 ## App files (container) from Linux
 `scripts/container.sh` reads/writes the app's sandbox (verified 2026-10-08/09, rootless, dev-signed app):
@@ -126,7 +154,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `help` | list of commands |
 | `page?name=` | switch sidebar page |
 | `state` | `page=...` |
-| `note?midi=60&on=1&vel=80` | inject a note event through the MIDI path (`on=0` releases); stamped now |
+| `note?midi=60&on=1&vel=80[&src=screen]` | inject a note event through the MIDI path (`on=0` releases); stamped now. `src=midi` (default) or `screen` (acts as the drawn keyboard; sets the run's `input`) |
 | `play?midi=60&ms=400` | sound a synth note (no grading) |
 | `metronome?bpm=100&steps=8&npb=1` / `metronome?stop=1` | schedule a count-in + clicks; replies ms until step 0 |
 | `midi` | MIDI state, selected source, devices, recent events |
@@ -146,7 +174,7 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `practice` | state: title, mode, phase, focus, status, targets, marks, results, best, calibration |
 | `toggle` | Start/Stop in tempo mode, Restart otherwise (the Space key) |
 | `calibrate` | start latency measuring |
-| `autoplay?wrong=0.15&gap=120&jitter=15&offset=25` | play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
+| `autoplay?wrong=0.15&gap=120&jitter=15&offset=25[&src=screen]` | (`src` defaults to midi) play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
 
 **Song routes** (Songs page; `Sources/MusicPractice/Songs/SongsDebug.swift`; all errors start `error:`, no song open replies `no song open`):
 
@@ -155,14 +183,14 @@ The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/p
 | `songs` | library, one line per song: `id<TAB>title<TAB>composer<TAB>format<TAB>size`. Starter ids are `starter:<slug>` |
 | `song?id=ID` / `song?starter=SLUG` | open a song; replies the `songstate` line (unknown id -> error) |
 | `songstate` | one line: id, title, view mode, zoom, fingering, hands, sheet, step, entries, measures, phase |
-| `keyboard?height=N\|hide=1\|show=1` | the keyboard drawer (Songs and Scales share it; registered once a drawer is on screen). Height 90..half the screen, in points; persists in UserDefaults `keyboardHeight`/`keyboardHidden`. Replies `keyboard height= hidden= min= max=`; no args just reports |
+| `keyboard?height=N\|hide=1\|show=1\|hints=0\|1` | the keyboard drawer (Songs and Scales share it; registered once a drawer is on screen). Height 90..half the screen, in points; persists in UserDefaults `keyboardHeight`/`keyboardHidden`. `hints=0` draws a plain keyboard (no targets, next keys, scale tint or fingers); it is the per-profile `Settings.keyboardHints` (default on), the same as the Scales/Songs options toggle. Replies `keyboard hints= height= hidden= min= max= container=`; no args just reports |
 | `songview?mode=page\|line&zoom=0.6-2&fingering=0\|1&hands=both\|rh\|lh&sheet=auto\|light\|dark` | view settings (any subset) |
 | `songmode?mode=listen\|learn\|notes\|tempo\|rubato` | set the practice mode; replies the practice state |
 | `songsel?mode=&hands=&from=&to=&whole=1&tempo=&metronome=&other=&repeat=&flow=flow\|jump&latency=&leeway=&guide=` | selection and options (from/to are measures; 0 or `whole=1` clears the range) |
 | `songpractice` | practice state: mode, phase, step/steps, measure, range, tempo, plan, marks, results |
 | `songseek?step=N` / `?measure=N\|back\|forward` | move the play position (N = written measure inside the selection) |
 | `songplay[?step=K]` / `songstop[?pause=1]` | start/resume, stop/pause |
-| `songsimulate?offsetMs=&missEvery=&scale=&swing=&from=&wait=1` | play the run through the MIDI path; `wait=1` blocks until done and appends the result line. Tempo starts itself |
+| `songsimulate?offsetMs=&missEvery=&scale=&swing=&from=&wait=1[&src=screen]` (`src` defaults to midi) | play the run through the MIDI path; `wait=1` blocks until done and appends the result line. Tempo starts itself |
 | `songresult` | last finished run line + per-step `timing:` |
 | `songcalibrate[?tap=1&offsetMs=]` | start latency calibration, optionally tapping along |
 | `songimport?path=` / `songdelete?id=` | import a container-relative file / delete a song |
@@ -233,7 +261,7 @@ App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`reg
 - Page-level debug commands (e.g. Progress: `history`, `seed`, `unseed`, `reload`) only exist once that page has appeared. Run `/page?name=progress` first.
 
 ## Gotchas learned
-- If `deploy.sh` fails because the venv python is missing, `~/pymobile3-venv/bin/python3` must point at a mise python 3.14.x install: mise `latest` moves (it went to 3.15), which breaks the symlink.
+- If `deploy.sh` fails because the venv python is missing or pymobiledevice3 no longer imports (for example after mise moved or removed a python), run `~/dev/omarchy-apple-dev/install-toolchain.sh --repair`. Since upstream v0.4.0 it rebuilds `~/pymobile3-venv` from the resolved interpreter path (now `~/.local/share/mise/installs/python/3.14.8`, not a `latest` symlink) and reinstalls pymobiledevice3, then re-registers the Darwin SDK from the cache. Don't `mise uninstall` that python.
 - `pkill -f 'device-run.sh'` (or any pattern on the command line) matches your own bash call and kills it (exit 144). Use `pgrep -f`, then `kill <pid>` in a separate call.
 - A finished `device-run.sh` sometimes stays alive after `Verifying 100%`. It's harmless; leave it rather than killing it.
 - `magick` (ImageMagick) is available for cropping screenshots; PIL is not.
