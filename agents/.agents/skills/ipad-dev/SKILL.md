@@ -1,14 +1,34 @@
 ---
 name: ipad-dev
-description: Build, test, deploy, screenshot and drive the Music Practice iPadOS app from Linux (xtool + pymobiledevice3 + the app's debug HTTP hooks). Load before building or deploying the app, running MusicCore tests, checking something on the iPad, reading device logs, taking a screenshot, or adding a debug command. Triggers: build, deploy, run on iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool, swift test, crash, LLDB, "without the cable", tailnet, Tailscale, wireless.
+description: Build, test, deploy, screenshot and drive an xtool iPadOS app from Linux (xtool + pymobiledevice3 + the app's debug HTTP hooks). Covers the Music Practice and Handwriting Practice iPad apps and any other iPad app in ~/dev, plus starting a new one from HelloOmarchy. Load before building or deploying an iPad app, running its Core package tests, checking something on the iPad, reading device logs, taking a screenshot, tapping or dragging on the device, pulling app files, reading a crash, adding a debug command or route. Triggers: iPad app, iPad, build, deploy, run on iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool, swift test, crash, LLDB, usbmuxd, "new iPad app", "without the cable", tailnet, Tailscale, wireless.
 ---
 
-# Music Practice iPad dev loop (Linux host)
+# iPad dev loop (Linux host, xtool apps)
 
 Toolchain: `~/dev/omarchy-apple-dev` (xtool + Swift 6.4 + iPhoneOS 27 SDK). Its
 README/GETTING-STARTED/FINDINGS.md are the authority on toolchain problems; CHANGELOG.md lists what
 changed per release (synced with upstream `joshuaswarren/omarchy-apple-dev` at v0.4.0+, 2026-10-18).
 `git -C ~/dev/omarchy-apple-dev pull upstream main` (fast-forward) picks up new device-run.sh/tools work.
+
+## Apps (read the per-app file after this one)
+| App (repo in ~/dev) | Bundle | Debug port | Core package | Per-app file |
+|---|---|---|---|---|
+| Music Practice (`music-practice-app`) | `dev.alexf.MusicPractice` | 8765 | `MusicCore` | `apps/music-practice.md` |
+| Handwriting Practice (`handwriting-practice-app`) | `dev.alexf.HandwritingPractice` | 8766 | `HandwritingCore` | `apps/handwriting-practice.md` |
+| A new app | start from `~/dev/HelloOmarchy` | pick the next free port | | "New app recipe" in `apps/new-app.md` |
+
+Below, `<App>` is the app's name, `<PORT>` its debug port, `<Core>` its Core package. Each app repo carries its own copy of
+`scripts/` with its bundle and port baked in, so run scripts from that repo's root. Different ports let two apps' forwarders coexist.
+
+## Rules
+- **One agent on the iPad at a time.** Deploy, screenshot, tap and the debug server share one device and one foreground app; two agents
+  clobber each other (and a killed client can crash usbmuxd). If another agent or session is using it, wait or ask.
+- Never `sudo` yourself; if something needs it, ask the user to run it with `! sudo ...`.
+- Never wrap a device command in `timeout`; killing a client mid-request can crash usbmuxd. Give generous waits instead.
+- Don't kill a stalled xtool, and don't run `xtool` with output to `/dev/null` (xtool #268/#304); redirect to a file under `~/tmp`.
+- Look at a screenshot before claiming a UI change works. If the device is locked (auto-lock 10 min), ask the user to unlock.
+- A background agent editing the Core package during a build can break the app build; build when no one is mid-edit.
+- On-device data is disposable (greenfield) unless told otherwise; seeding and clearing are fine.
 
 Device: "iPad Xande", iPad15,3, iPadOS 27.0.1, UDID `00008122-001259DE26E8401C`.
 USB is the working path for everything below. Wi-Fi via mDNS (`device-run.sh --network`) is blocked for
@@ -17,66 +37,89 @@ for this iPad). Developer Mode is on.
 xtool is already signed in (credentials aren't in `~/.local/share/xtool`; don't run
 `xtool auth` again). Free Apple ID: the install expires after 7 days, so redeploy.
 
-## Layout
-- `Package.swift`: the app (one `.library` product `MusicPractice`, SwiftUI).
-  Depends on `MusicCore/` by path.
-- `MusicCore/`: a platform-free package holding theory, grading engines, models and
-  song scoring/import. It depends on `../../ScoreKit` (which uses ZIPFoundation), so
-  it is no longer Foundation-only. Its tests run **on Linux**.
-- `xtool.yml`, `Info.plist` (partial, merged over xtool defaults), `Icon.png`.
-- `.gitignore` uses `.build/` (not `/.build`) so `MusicCore/.build` stays out.
-
 ## Commands
 All scripts live in the app repo (`scripts/`) and need no sudo, no tunneld and no human at the iPad.
 ```sh
-# Logic tests (fast, Linux host)
-cd MusicCore && swift test
-
-# Build + sign + install + relaunch + wait for the debug server (10-25 s incremental). Run from the repo root.
-scripts/deploy.sh              # add --log to stream the app's syslog to ~/tmp/app.log
-                               # --no-build reinstalls the signed xtool/*.app; --streaming uses the streaming installer
+cd <Core> && swift test        # logic tests (fast, Linux host)
+scripts/deploy.sh              # build+sign+install+relaunch+wait for the debug server (10-25 s incremental). Repo root.
+                               # --log streams the app's syslog to ~/tmp/app.log; --no-build reinstalls the signed xtool/*.app
 scripts/shot.sh NAME [25%]     # screenshot -> ~/tmp/shots/NAME.png (+ NAME-s.png resized); Read it
 scripts/tap.sh PX PY           # real touch at screenshot pixels, any orientation (see "Touch")
-scripts/drag.sh PX1 PY1 PX2 PY2 [SECS]   # real drag, same pixel coordinates (resize the keyboard drawer, etc.)
+scripts/drag.sh PX1 PY1 PX2 PY2 [SECS]   # real drag, same pixel coordinates
 scripts/container.sh ...       # read/write the app's sandbox files (see "App files")
 scripts/crashes.sh             # newest crash report -> ~/tmp/crashes/, symbolicated summary (see "Crash reports")
 ```
-- `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` that a plain `xtool dev build` leaves in `xtool/` can't be installed), then: mounts the DDI (`mounter auto-mount --userspace`, a no-op when mounted), stops the app (`/quit` if the debug server answers, else `dvt pkill --bundle`), installs with `pymobiledevice3 apps install --developer`, launches with `core-device launch-application`, starts the `usbmux forward` if nothing listens on 8765, and polls `/ping` (prints `ready in Ns: page=...`). Verified end to end 2026-10-08 on all three paths (app running → `/quit`; app not running → `dvt pkill`; `--no-build`).
-- If the build fails, deploy.sh prints up to the first 5 `error:` lines from the log (none if the failure has no `error:` line; see `~/tmp/deploy.log`) and then `FAILED: build`. A build broken by someone else's in-progress `MusicCore` edit is not yours to fix; report it.
-- The old "swipe out of the app during Installing" stall is gone with this path: `apps install` replaces the foreground app without help. (`xtool install` and `xtool dev run` still stall that way; `device-run.sh` uses them.)
-- xtool prefixes the bundle id: the installed id is `XTL-2CWY6D3Y7M.dev.alexf.MusicPractice`.
-- If you hit `Too many open files`, run `ulimit -n 65536` first (the script does).
-- After a toolchain change, delete `.build`.
-- Don't run `xtool` with output sent to `/dev/null` (xtool #268/#304); redirect to a file under `~/tmp`.
+- `deploy.sh` writes details to `~/tmp/deploy.log`. It builds with `xtool dev build --sign` (the unsigned `.app` a plain `xtool dev build` leaves in `xtool/` can't be installed), then: mounts the DDI (`mounter auto-mount --userspace`, a no-op when mounted), stops the app (`/quit` if the debug server answers, else `dvt pkill --bundle`), installs with `pymobiledevice3 apps install --developer`, launches with `core-device launch-application`, starts the `usbmux forward` if nothing listens on <PORT>, and polls `/ping` (prints `ready in Ns: ...`).
+- If the build fails, deploy.sh prints up to the first 5 `error:` lines and then `FAILED: build` (details in `~/tmp/deploy.log`). A build broken by someone else's in-progress Core edit is not yours to fix; report it.
+- xtool prefixes the bundle id: the installed id is `XTL-2CWY6D3Y7M.<bundle>`.
+- If you hit `Too many open files`, run `ulimit -n 65536` first (the script does). After a toolchain change, delete `.build`.
+- `xtool install` / `xtool dev run` stall at `[Installing] 100%` while the app is foreground; `deploy.sh` uses `apps install`, which doesn't.
+- `.gitignore` should use `.build/` (not `/.build`) so the Core package's `.build` stays out.
+
+## Verify loop for UI work
+1. `swift test` in the Core package.
+2. `scripts/deploy.sh`.
+3. Drive the app to the state you need with `curl localhost:<PORT>/...` (`/page`, `/tap?id=`, app routes).
+4. `scripts/shot.sh NAME` and Read the PNG.
+5. Only then say the change works.
 
 ## Seeing the iPad
 P=`~/pymobile3-venv/bin/pymobiledevice3` (11.26.0), U=`00008122-001259DE26E8401C`.
 
-**No tunneld and no root.** With pymobiledevice3 >= 11.26, developer commands fall back to an in-process userspace tunnel on their own (a warning says so; pass `--userspace` to skip the first failed attempt). The DDI mount is once per boot and idempotent: `$P mounter auto-mount --udid $U --userspace` (verified rootless when already mounted; a fresh post-reboot mount is not yet verified rootless. The DDI can't be unmounted to test it: `umount-personalized` fails with "Failed to unload launchd jobs").
+**No tunneld and no root.** With pymobiledevice3 >= 11.26, developer commands fall back to an in-process userspace tunnel on their own (a warning says so; pass `--userspace` to skip the first failed attempt). The DDI mount is once per boot and idempotent: `$P mounter auto-mount --udid $U --userspace`.
 - `--udid U` is accepted by `dvt`, `accessibility`, `mounter`, `apps`, `syslog`, `usbmux forward`.
-- `developer core-device ...` subcommands do **not** take `--udid`. Use `export PYMOBILEDEVICE3_UDID=$U` (or rely on there being only one device).
-- Each command in the Bash tool is a fresh shell, so set the variable in the same command.
+- `developer core-device ...` subcommands do **not** take `--udid`. Use `export PYMOBILEDEVICE3_UDID=$U`. Each Bash call is a fresh shell, so set it in the same command.
 
 **Screenshots:** `scripts/shot.sh NAME`, or `$P developer dvt screenshot ~/tmp/shots/NAME.png --udid $U --userspace`, then Read the PNG (~2 s).
-- PNGs are 1908×2746 in portrait and 2746×1908 in landscape (they follow the device orientation).
-- The debug server's `/tree` reports points; screenshot pixels = points × 2.
-
-**Orientation:** `$P developer core-device get-display-info` shows `currentOrientation` (rot0 / rot90 / rot180 / rot270). `core-device rotate left|right` rotates the device without touching it.
+- **Coordinate rules:** PNGs are 1908x2746 in portrait and 2746x1908 in landscape (they follow the device orientation). The debug server's `/tree` reports points; screenshot pixels = points x 2. `tap.sh`/`drag.sh` take screenshot pixels, so measure from the PNG you just took (re-shoot after rotating).
+- Orientation: `$P developer core-device get-display-info` shows `currentOrientation` (rot0/rot90/rot180/rot270); `core-device rotate left|right` rotates without touching.
 
 **Other ways to look:**
-- Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn MusicPractice`. Debug commands log under category `debug`.
-- UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` (with `PYMOBILEDEVICE3_UDID` set) works unprivileged but returns only captions and ids, with no frames.
+- Logs: `deploy.sh --log` (writes `~/tmp/app.log`), or `$P syslog live -pn <App>`. Debug commands log under category `debug`.
+- UI tree as text: prefer the app's `/tree` (frames, ids). `$P developer accessibility list-items` works unprivileged but gives only captions and ids.
 - LLDB (rootless, attach verified 2026-10-09): needs `~/dev/omarchy-apple-dev` on `main` (upstream has `--lldb`/`--attach` since PR #10; its FINDINGS 67 now holds these recipes; the fork's `lldb-userspace` is redundant). Run from the app repo root:
   - `~/dev/omarchy-apple-dev/device-run.sh --lldb` builds, installs, launches the app suspended and attaches (33 s total). `--attach` skips build/stop/reinstall and attaches to the installed app, running or not (35 s).
   - `LLDB_CMDS=$'bt\nprocess detach'` runs commands after the attach, in synchronous mode. End with `process detach`.
   - Mechanism: the userspace debugserver forwarder plus an async `process connect` (a sync connect hangs). `LLDB_LOAD_LEVEL=minimal` (default) keeps the attach to about 30 s; `complete` gives full system symbols in minutes. `--sudo` is the old kernel-tunnel path with full symbols, and it needs the user.
   - Verified: stopped process, `bt`, `thread list`, `process detach`, app symbols with file:line (`image lookup -r -n DebugServer`). System frames show only the library name.
-  - Verified 2026-10-09 (2 sessions, usbmuxd stayed active, NRestarts 0): `breakpoint set -f AppModel.swift -l 185`, `continue`, hit with source, `frame variable` (locals and args, `v self` too), `thread step-over/step-in/step-out`, `po self` (prints `(MusicPractice.AppModel) 0x... {}`), `process detach` (app keeps running, `/ping` ok). NOT verified: `--attach --sudo`.
+  - Verified 2026-10-09 (2 sessions, usbmuxd stayed active, NRestarts 0): `breakpoint set -f SomeFile.swift -l 185`, `continue`, hit with source, `frame variable` (locals and args, `v self` too), `thread step-over/step-in/step-out`, `po self` , `process detach` (app keeps running, `/ping` ok). NOT verified: `--attach --sudo`.
   - **Swift `expr` does not work** (`expr 1+1` -> "cannot load underlying module for 'AVFAudio'"; `po` warns and falls back to `p`). `expr -l c -- 1+1` and `-l objc` work but print a long burst of "Error while searching for Xcode SDK: HostInfoError" (about 2 min; harmless). Use `frame variable` / `v`. `bt` prints only the app frames plus "HostInfoError" noise; system frames are hidden by `minimal` load level.
   - **A failing command aborts the rest of LLDB_CMDS** (batch mode). Put risky ones (Swift `expr`) last, or wrap them as `script lldb.debugger.HandleCommand('expr 1+1')`.
-  - **Route-triggered breakpoint recipe:** LLDB_CMDS is synchronous, so `continue` blocks until the stop, then the next lines run. Fire the request from a background job that starts before the attach finishes (the attach takes about 35 s, so sleep ~55 s), with a long `-m`: `(sleep 55; curl -s -m 100 'localhost:8765/note?midi=60&on=1' > ~/tmp/t.out 2>&1) &` then `LLDB_CMDS=$'breakpoint set -f AppModel.swift -l 185\ncontinue\nbt\nframe variable\nthread step-over\nframe variable\nthread step-in\nthread step-out\nprocess detach' device-run.sh --attach`. The curl blocks while stopped (the debug server's handler is paused), and fails with rc 28 if the session outlasts `-m`. Always end with `process detach`.
+  - **Route-triggered breakpoint recipe:** LLDB_CMDS is synchronous, so `continue` blocks until the stop, then the next lines run. Fire the request from a background job that starts before the attach finishes (the attach takes about 35 s, so sleep ~55 s), with a long `-m`: `(sleep 55; curl -s -m 100 'localhost:<PORT>/ROUTE' > ~/tmp/t.out 2>&1) &` then `LLDB_CMDS=$'breakpoint set -f SomeFile.swift -l 185\ncontinue\nbt\nframe variable\nthread step-over\nframe variable\nthread step-in\nthread step-out\nprocess detach' device-run.sh --attach`. The curl blocks while stopped (the debug server's handler is paused), and fails with rc 28 if the session outlasts `-m`. Always end with `process detach`.
   - **usbmuxd crash:** 3 of the first 5 rootless sessions ended with usbmuxd aborting ("free(): invalid pointer") after the detach or as the next session started. Since 2026-10-09 a drop-in (`/etc/systemd/system/usbmuxd.service.d/override.conf`: `Restart=on-failure`, `RestartSec=1`, `StartLimitIntervalSec=0`) restarts it on its own. If a device command fails with "Failed to connect to usbmuxd socket", wait a few seconds, check `systemctl show usbmuxd -p ActiveState -p NRestarts`, then run a full `scripts/deploy.sh`, which starts a fresh forwarder. Ask the user for `sudo systemctl restart usbmuxd` only if it stays down. Don't `pkill -f "usbmux forward"` from a Bash tool call: the pattern matches the tool's own shell and kills it. Use `pgrep -f "[u]sbmux forward"`.
   - After `device-run.sh`, `deploy.sh --no-build` fails with "not signed" (`xtool dev build` leaves the app unsigned). Use a full `deploy.sh`.
+
+## Touch
+`scripts/tap.sh PX PY` sends a real touch (`core-device universal-hid-service tap`) at screenshot pixel coordinates. HID coordinates are 0..65535 in a frame that rotates with the orientation; tap.sh reads `currentOrientation` and converts (all four orientations verified). `scripts/tap.sh --frac FX FY` takes fractions of the upright screen (the `fx=`/`fy=` columns in `/tree`). `scripts/drag.sh` does the same for drags. Use the app's `/tap?id=` first (no coordinates needed); use tap.sh for what accessibility can't activate (UIKit menu items, alert buttons, keyboard keys).
+
+## Driving the app: debug hooks
+DEBUG builds run an HTTP command server on the device's loopback, at the app's `<PORT>` (`Sources/<App>/Debug/DebugServer.swift`):
+```sh
+($P usbmux forward <PORT> <PORT> > ~/tmp/fwd.log 2>&1 &)   # deploy.sh starts it; dies if the iPad unplugs
+curl -s localhost:<PORT>/help                              # list commands
+```
+The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/ping`. Common routes in every app: `ping help tree tap scroll quit crash awake state page appearance`. The per-app file has the full route table.
+
+**Adding a command:**
+- From any `@MainActor` code (often a view's `.task` inside `#if DEBUG`), register it with `DebugServer.shared.register("name") { query in ...; return "text" }`.
+- `query` is `[String: String]` built from the query string. Return a short, greppable text or JSON body.
+- Keep it all inside `#if DEBUG`, and add the route to the app's file under `apps/`.
+- Page-level commands exist only once their page has appeared; switch with `/page?name=` first.
+
+## App files (container) from Linux
+`scripts/container.sh` reads/writes the app's sandbox (verified 2026-10-08/09, rootless, dev-signed app):
+```sh
+scripts/container.sh ls ["Library/Application Support/store"]   # no arg: Library, Documents, tmp
+scripts/container.sh pull "Library/Application Support/store" [local]   # default ~/tmp/container/<name>
+scripts/container.sh [--restart] push LOCAL "Library/Application Support/store/<prefix>.v1.sessions.json"
+scripts/container.sh [--restart] rm REMOTE                      # recursive for dirs
+scripts/container.sh snapshot                                   # -> ~/tmp/container/snap-<ts>/Library/Application Support/...
+scripts/container.sh [--restart] restore ~/tmp/container/snap-<ts>
+```
+- Paths are relative to the container root. App data is under `Library/Application Support/` (the per-app file names the keys).
+- **Stop the app before writing**, or it overwrites your file on its next save. `--restart` does `curl :<PORT>/quit`, the write, then `deploy.sh --no-build` (~10 s). Reads are safe while it runs.
+- Works: `apps pull/push/rm` (house_arrest VendContainer): whole container, including Library/Application Support. `core-device list-directory/stat/read-file/write-file` (domain `appDataContainer --identifier BUNDLE`): only Library, Documents, tmp, and neither `write-file` nor `create-directory` makes parents. `create-directory` makes dirs with permissions 0 that AFC cannot enter; don't use it. Plain `pymobiledevice3 afc` is /var/mobile/Media only.
+- `apps pull DIR dest` puts the dir *inside* dest; `apps push FILE` fails on a missing parent, but `apps push DIR` creates directories (the script uses that trick).
 
 ## Without the cable (Tailscale, iOS 27; NOT set up for this iPad yet)
 Upstream (`docs/OVER-TAILNET.md`, measured on an iPhone with iOS 27.0.1, not on this iPad) drives a phone over Tailscale with no
@@ -88,11 +131,11 @@ cable and no Mac: install, launch, screenshot, syslog, LLDB. The iPad is on the 
 - The tunnel needs a TUN device: the tool uses `sudo -n`, so ask the user to run `sudo -v` first (never sudo yourself). Then
   `~/pymobile3-venv/bin/python ~/dev/omarchy-apple-dev/tools/tailnet-tunnel.py 100.x.y.z --hold 600` prints `RSD fd..::1 PORT`;
   every pymobiledevice3 command takes `--rsd fd..::1 PORT` instead of `--udid`/USB.
-- `~/dev/omarchy-apple-dev/device-run.sh --over-tailnet 100.x.y.z xtool/MusicPractice.app` installs and launches a signed build
+- `~/dev/omarchy-apple-dev/device-run.sh --over-tailnet 100.x.y.z xtool/<App>.app` installs and launches a signed build
   (after `scripts/deploy.sh` or `xtool dev build --sign`; a plain `xtool dev build` leaves it unsigned). Add `--console [SECS]`
   for the app's stdout/stderr plus `running after N s` / `fatal text seen`, and `--symbolicate [DIR]` to pull and print crash
   reports afterwards. Both flags also work on `--rsd`, not on the USB mode.
-- `scripts/deploy.sh`, `shot.sh`, `tap.sh`, `container.sh`, `crashes.sh` and the 8765 `usbmux forward` are USB-only today;
+- `scripts/deploy.sh`, `shot.sh`, `tap.sh`, `container.sh`, `crashes.sh` and the <PORT> `usbmux forward` are USB-only today;
   they would need `--rsd` variants (and a different port forward for the debug server) to work this way.
 - Limits: the iPad needs Wi-Fi (cellular-only closes the port) and the Tailscale VPN on. Screen off and idle for hours: screenshots
   are black and launches fail (code 10002), so wake it to the lock screen first. Screenshots show whatever is on screen.
@@ -100,10 +143,10 @@ cable and no Mac: install, launch, screenshot, syslog, LLDB. The iPad is on the 
   `main` (see the doc). The USB `--lldb`/`--attach` path below is much faster.
 
 ## Crash reports
-`scripts/crashes.sh` (`-n N` for the newest N, `--all` lists the device's MusicPractice reports, `--watch` streams new ones, `FILE.ips` re-reads a local one). It runs `crash flush`, `crash pull -m 'MusicPractice-.*\.ips'` into `~/tmp/crashes/`, then prints exception, termination, the crashed thread's backtrace, and file:line plus the source line for MusicPractice frames (marked `>`). Verified 2026-10-08 with `crash?kind=fatal`.
-- Reports are `MusicPractice-<date>.ips` (JSON) on the device under `/` (`pymobiledevice3 crash ls`). They appear within a few seconds of the crash.
+`scripts/crashes.sh` (`-n N` for the newest N, `--all` lists the device's <App> reports, `--watch` streams new ones, `FILE.ips` re-reads a local one). It runs `crash flush`, `crash pull -m '<App>-.*\.ips'` into `~/tmp/crashes/`, then prints exception, termination, the crashed thread's backtrace, and file:line plus the source line for <App> frames (marked `>`). Verified 2026-10-08 with `crash?kind=fatal`.
+- Reports are `<App>-<date>.ips` (JSON) on the device under `/` (`pymobiledevice3 crash ls`). They appear within a few seconds of the crash.
 - Symbolication: the xtool binary has no DWARF of its own, only a debug map to `.build/**.o`. The script runs `dsymutil` on it into `~/tmp/dsym/<uuid>.dSYM` and feeds `llvm-symbolizer` (frame > 0 uses addr-1).
-- It matches the report's image UUID against `xtool/MusicPractice.app/MusicPractice`. Every rebuild changes the UUID, so a crash from an older build gets a UUID-mismatch warning and device function names only. Read a crash before redeploying.
+- It matches the report's image UUID against `xtool/<App>.app/<App>`. Every rebuild changes the UUID, so a crash from an older build gets a UUID-mismatch warning and device function names only. Read a crash before redeploying.
 - The report does not carry the `fatalError` message (no `asi`); the printed source line at the crash site does. For more, use `deploy.sh --log`.
 - `pymobiledevice3 crash watch --format json` is broken in 11.26.0 (TypeError); the script parses the text output.
 - A backgrounded `--watch` ignores SIGINT; stop it with a plain `kill` on the script and the `crash watch` child (idle, so usbmuxd survived in testing). From a terminal, Ctrl-C works.
@@ -111,164 +154,20 @@ cable and no Mac: install, launch, screenshot, syslog, LLDB. The iPad is on the 
   `crashes.sh` is better for the app's own frames; use the tool for a report whose UUID no longer matches a dSYM-able build, or for
   framework binaries. It prints mangled Swift names unless `swift-demangle` is on PATH.
 
-## App files (container) from Linux
-`scripts/container.sh` reads/writes the app's sandbox (verified 2026-10-08/09, rootless, dev-signed app):
-```sh
-scripts/container.sh ls ["Library/Application Support/store"]   # no arg: Library, Documents, tmp
-scripts/container.sh pull "Library/Application Support/store" [local]   # default ~/tmp/container/<name>
-scripts/container.sh [--restart] push LOCAL "Library/Application Support/store/mp.v1.sessions.json"
-scripts/container.sh [--restart] rm REMOTE                      # recursive for dirs
-scripts/container.sh snapshot                                   # -> ~/tmp/container/snap-<ts>/Library/Application Support/...
-scripts/container.sh [--restart] restore ~/tmp/container/snap-<ts>
-```
-- Paths are relative to the container root. Data is in `Library/Application Support/store/mp.v1.*.json` (one JSON array/object per key: `sessions`, `songSessions`, `learn`, `settings`); songs will be in `Library/Application Support/songs/` + `songs-index.json`.
-- **Stop the app before writing**, or it overwrites your file on its next save and holds old data in memory. `--restart` does `curl :8765/quit`, the write, then `deploy.sh --no-build` (~10 s). Reads are safe while it runs. After a push, `/page?name=progress` then `/history` shows the new counts.
-- Works: `apps pull/push/rm` (house_arrest VendContainer): whole container, including Library/Application Support. `core-device list-directory/stat/read-file/write-file` (domain `appDataContainer --identifier BUNDLE`): only Library, Documents, tmp (root refused), and neither `write-file` nor `create-directory` makes parents. `create-directory` makes dirs with permissions 0 that AFC cannot enter; don't use it. Plain `pymobiledevice3 afc` is /var/mobile/Media only.
-- `apps pull DIR dest` puts the dir *inside* dest; `apps push FILE` fails on a missing parent, but `apps push DIR` creates directories (the script uses that trick). The script handles both.
-- Seeding recipe: pull `mp.v1.sessions.json`, append objects in the same shape (copy one, new `id`, marker `durationMs`), `push --restart`. Verified: 39 -> 40 sessions on the Progress page, then `restore` brought back a byte-identical file.
-
-## Touch
-`scripts/tap.sh PX PY` sends a real touch (`core-device universal-hid-service tap`) at screenshot pixel coordinates. HID coordinates are 0..65535 in a frame that rotates with the orientation; tap.sh reads `currentOrientation` and converts. All four orientations were verified on the iPad. `scripts/tap.sh --frac FX FY` takes fractions of the upright screen (the `fx=`/`fy=` columns in `/tree`). Use `/tap?id=` first (no coordinates needed); use tap.sh for things accessibility can't activate (e.g. UIKit menu items, keyboard keys).
-
-## Driving the app: debug hooks
-Besides real touches (`scripts/tap.sh`), DEBUG builds run an HTTP command server on the device's loopback, port 8765 (`Sources/MusicPractice/Debug/DebugServer.swift`):
-
-```sh
-($P usbmux forward 8765 8765 > ~/tmp/fwd.log 2>&1 &)   # deploy.sh starts it; dies if the iPad unplugs
-curl -s localhost:8765/help                            # list commands
-curl -s 'localhost:8765/page?name=progress'            # scales | progress | about
-curl -s localhost:8765/state
-```
-The forwarder survives redeploys; deploy.sh relaunches the app and waits for `/ping`.
-
-**Adding a command:**
-- From any `@MainActor` code (often a view's `.task` inside `#if DEBUG`), register it with `DebugServer.shared.register("name") { query in ...; return "text" }`.
-- `query` is `[String: String]` built from the query string.
-- Return a short, greppable text or JSON body.
-- Keep all of this inside `#if DEBUG`.
-- Add the new command to the table below.
-
-| Command | Effect |
-|---|---|
-| `ping` | `ok` |
-| `help` | list of commands |
-| `page?name=` | switch sidebar page |
-| `state` | `page=...` |
-| `note?midi=60&on=1&vel=80[&src=screen]` | inject a note event through the MIDI path (`on=0` releases); stamped now. `src=midi` (default) or `screen` (acts as the drawn keyboard; sets the run's `input`) |
-| `play?midi=60&ms=400` | sound a synth note (no grading) |
-| `metronome?bpm=100&steps=8&npb=1` / `metronome?stop=1` | schedule a count-in + clicks; replies ms until step 0 |
-| `midi` | MIDI state, selected source, devices, recent events |
-| `history` | counts of sessions, song sessions and learn sessions |
-| `seed?n=30` | add made-up scale runs (marker values: durationMs 9000, velocityStd 8, unevenness 0.1). This writes to REAL history |
-| `unseed` | remove exactly the seeded runs |
-| `reload` | reload the Progress page |
-| `appearance?theme=light\|dark\|system` | theme override |
-| `audio` | engine running, sample rate, output latency, IO buffer |
-| `quit` | replies `bye`, then `exit(0)` 200 ms later (cold start next launch) |
-| `crash?kind=fatal` | `fatalError` on the main actor 200 ms after replying (exercise `scripts/crashes.sh`; the app dies, redeploy with `deploy.sh --no-build`) |
-| `corrupt?key=sessions\|songSessions\|learn\|settings\|songRanges\|library&kind=json\|record` | plant bad data on disk (`json`: the file becomes `{not json`; `record`: one bad record/field/entry is added, `library` also adds an entry with no file). Then `/quit` straight away and `deploy.sh --no-build`: the "Some saved data couldn't be read" alert shows. "Not now" leaves the files alone (alert returns next launch); "Delete it" cleans them. Tap its buttons with `tap.sh --frac` (`/tap?id=` can't activate alert buttons) |
-| `tree[?all=1\|views=1]` | accessibility tree with ids, labels, traits, frames in points and `fx`/`fy` centre fractions. Includes UIKit chrome (nav bar) and open menus |
-| `tap?id=` | activate the element whose accessibilityIdentifier, label (exact, then substring) matches: `accessibilityActivate()`, else a UIControl `touchUpInside`, else selects the list row. UIKit menu items don't respond: use `scripts/tap.sh` |
-| `scroll?dy=400[&dx=][&id=]` | scroll the largest scrollable view (or the one containing element `id`) by dy points, clamped; replies the new offset |
-| `exercise?tonic=Eb&type=major&hands=both&octaves=2&dir=updown&mode=notes\|tempo\|learn&bpm=90&npb=2&fingers=1` | set the exercise; replies with the practice state |
-| `practice` | state: title, mode, phase, focus, status, targets, marks, results, best, calibration |
-| `toggle` | Start/Stop in tempo mode, Restart otherwise (the Space key) |
-| `calibrate` | start latency measuring |
-| `autoplay?wrong=0.15&gap=120&jitter=15&offset=25[&src=screen]` | (`src` defaults to midi) play the exercise through the MIDI path. `wrong` is the share of steps preceded by a wrong note (notes modes); `gap` is ms between steps; `jitter`/`offset` are ms of timing error vs the click (tempo mode, which it starts itself) |
-
-**Song routes** (Songs page; `Sources/MusicPractice/Songs/SongsDebug.swift`; all errors start `error:`, no song open replies `no song open`):
-
-| Command | Effect |
-|---|---|
-| `songs` | library, one line per song: `id<TAB>title<TAB>composer<TAB>format<TAB>size`. Starter ids are `starter:<slug>` |
-| `song?id=ID` / `song?starter=SLUG` | open a song; replies the `songstate` line (unknown id -> error) |
-| `songstate` | one line: id, title, view mode, zoom, fingering, hands, sheet, step, entries, measures, phase |
-| `keyboard?height=N\|hide=1\|show=1\|hints=0\|1` | the keyboard drawer (Songs and Scales share it; registered once a drawer is on screen). Height 90..half the screen, in points; persists in UserDefaults `keyboardHeight`/`keyboardHidden`. `hints=0` draws a plain keyboard (no targets, next keys, scale tint or fingers); it is the per-profile `Settings.keyboardHints` (default on), the same as the Scales/Songs options toggle. Replies `keyboard hints= height= hidden= min= max= container=`; no args just reports |
-| `songview?mode=page\|line&zoom=0.6-2&fingering=0\|1&hands=both\|rh\|lh&sheet=auto\|light\|dark` | view settings (any subset) |
-| `songmode?mode=listen\|learn\|notes\|tempo\|rubato` | set the practice mode; replies the practice state |
-| `songsel?mode=&hands=&from=&to=&whole=1&tempo=&metronome=&other=&repeat=&flow=flow\|jump&latency=&leeway=&guide=` | selection and options (from/to are measures; 0 or `whole=1` clears the range) |
-| `songpractice` | practice state: mode, phase, step/steps, measure, range, tempo, plan, marks, results |
-| `songseek?step=N` / `?measure=N\|back\|forward` | move the play position (N = written measure inside the selection) |
-| `songplay[?step=K]` / `songstop[?pause=1]` | start/resume, stop/pause |
-| `songsimulate?offsetMs=&missEvery=&scale=&swing=&from=&wait=1[&src=screen]` (`src` defaults to midi) | play the run through the MIDI path; `wait=1` blocks until done and appends the result line. Tempo starts itself |
-| `songresult` | last finished run line + per-step `timing:` |
-| `songcalibrate[?tap=1&offsetMs=]` | start latency calibration, optionally tapping along |
-| `songimport?path=` / `songdelete?id=` | import a container-relative file / delete a song |
-| `tap?id=loop-weakest` | on the results card: practise the weakest 2-measure stretch (sets the range) |
-| `exportfile` / `importfile?name=` | export to `tmp/export.json` (pull with container.sh) / import `tmp/<name>`. Progress-page routes |
-
-`scripts/song-smoke.sh [-v]` drives the whole flow (list, open starter, view/mode/range, seek, Listen play/stop, simulated Notes and Tempo runs, result, loop weakest, export) and exits non-zero on the first failure (~40 s, 33 calls; writes disposable history).
-
-Song gotchas:
-- `songsimulate` and the `song*` routes only act while a song is open on the Songs page; they reply `no song open` otherwise. `/page?name=scales` (or progress) closes the song; reopen with `song?...`.
-- `exportfile`, `history`, `seed` exist only after `/page?name=progress`.
-- Simulated runs save real song sessions (`saved=true`); fine, history is disposable.
-- Songs opens by view switch (not a NavigationStack push) since 2026-10-09, so opening right after a page switch is safe. The back button is `tap?id=song-back`. `openurl?path=<container path>` drives the "Open in" import-and-open path.
-- Right after a reboot, `scripts/tap.sh` works again (verified 2026-10-09: `--frac` taps switched sidebar pages).
-
-**Sync routes** (accounts and history sync, A7; `AppModel.registerSyncCommands`; the web server is `https://music.17xande.dev`, override in DEBUG with the `syncBaseURL` user default):
-
-| Command | Effect |
-|---|---|
-| `sync` | runs a sync now; replies `ok(changed: ...)`, `off`, `signedOut`, `offline` or `error(...)`, plus cursor and pending counts |
-| `syncstate` | `mp.v1.sync` as JSON plus `token` (`absent` or `<redacted>`, never the value) and the last message |
-| `signin?email=&password=[&upload=1]` | sign in (URL-encode the password; the debug log redacts it). `upload=1` queues every local run, as the "Add this iPad's N runs?" prompt's Yes. It does not sync: call `sync` next |
-| `signout` | `DELETE /api/token`, then forget the token and `mp.v1.sync`; history stays |
-
-Gotchas: `seed`/`unseed`/`songsimulate` write real history, which syncs while signed in (`unseed` removes only the seeded runs and queues just those as deletions). Test only with the throwaway account in `~/tmp/mp-test-account`; never echo its password.
-
-**Profile routes** (multiple local accounts, A8; `AppModel.registerProfileCommands`). Each profile has its own history, settings, song ranges, last song/page, sync state and Keychain token (account attribute = profile id); the song library is shared. Storage keys are prefixed `p-<id>.` (files `store/p-<id>.mp.v1.*.json`; the index is `store/mp.ipad.profiles.json`). `corrupt` plants into the active profile.
-
-| Command | Effect |
-|---|---|
-| `profiles` | one line per profile: `*` marks the active one, then id, name, `local` or the signed-in email |
-| `profile?add=NAME` | add a profile (does not switch); replies the new id and the list |
-| `profile?switch=ID` | switch: stops runs, reloads every model, syncs the new profile if signed in |
-| `profile?delete=ID` | delete a profile and its data (active one: switches to another first; the last one is refused); revokes its token best effort |
-| `profile?rename=ID&name=NAME` | rename |
-
-UI: the picker is the first row of the sidebar (`profile-menu`; UIKit menu, open it with `scripts/tap.sh`), "Manage accounts..." opens the sheet. Gotcha: `signin`/`sync`/`syncstate` act on the active profile, so switch first.
-
-Practice commands live in `Sources/MusicPractice/Practice/PracticeDebug.swift`.
-UI commands (`quit`, `crash`, `tree`, `tap`, `scroll`) live in `Sources/MusicPractice/Debug/DebugUI.swift`; `DebugUI.actions["id"]` is a registry for controls that accessibility can't activate. Sidebar rows have identifiers `nav-scales|progress|about` (RootView); `/tree` shows them and `tap?id=nav-progress` selects the row (verified).
-App-wide debug commands live in `Sources/MusicPractice/App/AppModel.swift` (`registerDebugCommands`).
-
-## Verify loop for UI work
-1. `swift test` in `MusicCore`.
-2. `scripts/deploy.sh`.
-3. Drive the app to the state you need with `curl` (`/page`, `/tap?id=`, `/exercise`, ...).
-4. Take a screenshot (`scripts/shot.sh`) and Read it.
-5. Look at the screenshot before claiming the change works.
-
-## Audio and MIDI facts (measured on this iPad)
-- AVAudioEngine runs at 48 kHz, with an output latency of 10.0 ms and an IO buffer of 5.3 ms (5 ms preferred).
-- Everything uses one clock: host time in ms (`HostClock`). CoreMIDI packet stamps and render `mHostTime` are both host time.
-- Clicks are scheduled in "heard" time: the synth adds `outputLatency`.
-- I can't hear the device. Ask the user to listen when audio quality or timing matters by ear.
-- DEBUG builds enable a `MIDINetworkSession` (policy: anyone), which shows up as source "Network Session 1". From Linux, an RTP-MIDI client (e.g. `rtpmidid`) can connect to the iPad and play real MIDI into it. This is untested so far.
-
-- the iPad auto-locks after 10 min; DEBUG builds disable the idle timer while the app is foreground (`/awake?on=0|1`, `/state` shows `awake=`); it does not help if another app is in front. If the device is locked, ask the user to unlock.
-
 ## When the device stops responding
 - **Symptoms:** `device-run.sh` says "Pairing needed", or hangs at step 3 (`xtool devices`); `pymobiledevice3 usbmux list` is empty; `lsusb` still shows the iPad.
 - **Check:** `systemctl is-active usbmuxd`. If it says `failed`, see why with `journalctl -u usbmuxd`.
 - **Known crash:** usbmuxd 1.1.1 logs "Sending to client fd N failed: Broken pipe" and then "free(): invalid pointer", and dumps core. It happens when a client is killed mid-request, e.g. a stopped agent or a `timeout` around a device command.
-- **Fix:** the user runs `sudo systemctl restart usbmuxd`; never run sudo yourself. Hung xtool calls continue afterwards. If the daemon restarted, restart the usbmux forwarder too: find the stale one with `pgrep -f "usbmux forward"` and `kill` it (safe: it is idle, unlike a streaming client such as `syslog live`), then rerun `scripts/deploy.sh`, which starts a fresh one.
+- **Fix:** if `pymobiledevice3 usbmux list` is empty but `lsusb` shows the iPad, tell the user to run `! sudo systemctl restart usbmuxd`; never run sudo yourself. Hung xtool calls continue afterwards. If the daemon restarted, restart the usbmux forwarder too: find the stale one with `pgrep -f "usbmux forward"` and `kill` it (safe: it is idle, unlike a streaming client such as `syslog live`), then rerun `scripts/deploy.sh`, which starts a fresh one.
 - **Prevention:** don't kill device commands mid-flight. Give them generous timeouts rather than short `timeout` wrappers.
-- If the iPad gets unplugged (e.g. moved to a MIDI keyboard), usbmuxd exits cleanly. Plugging back in starts it again; rerun `scripts/deploy.sh` (or just restart the forwarder).
+- If the iPad gets unplugged (e.g. moved to another device), usbmuxd exits cleanly. Plugging back in starts it again; rerun `scripts/deploy.sh` (or just restart the forwarder).
 - `xtool install` / `xtool dev run` stall at `[Installing] 100%` while the app is in the foreground, until someone swipes home. Don't use them; `scripts/deploy.sh` uses `apps install`, which doesn't. Don't kill a stalled xtool: killing a client mid-request can crash usbmuxd.
-- On-device history is disposable test data for now (greenfield). Seeding and clearing are fine; mention it in passing. `/unseed` removes seeded runs.
-- Page-level debug commands (e.g. Progress: `history`, `seed`, `unseed`, `reload`) only exist once that page has appeared. Run `/page?name=progress` first.
-
 ## Gotchas learned
-- If `deploy.sh` fails because the venv python is missing or pymobiledevice3 no longer imports (for example after mise moved or removed a python), run `~/dev/omarchy-apple-dev/install-toolchain.sh --repair`. Since upstream v0.4.0 it rebuilds `~/pymobile3-venv` from the resolved interpreter path (now `~/.local/share/mise/installs/python/3.14.8`, not a `latest` symlink) and reinstalls pymobiledevice3, then re-registers the Darwin SDK from the cache. Don't `mise uninstall` that python.
-- `pkill -f 'device-run.sh'` (or any pattern on the command line) matches your own bash call and kills it (exit 144). Use `pgrep -f`, then `kill <pid>` in a separate call.
-- A finished `device-run.sh` sometimes stays alive after `Verifying 100%`. It's harmless; leave it rather than killing it.
+- If `deploy.sh` fails because the venv python is missing or pymobiledevice3 no longer imports (for example after mise moved or removed a python), run `~/dev/omarchy-apple-dev/install-toolchain.sh --repair`. Don't `mise uninstall` that python.
+- `pkill -f 'device-run.sh'` (or any pattern on the command line) matches your own bash call and kills it (exit 144). Use `pgrep -f "[u]sbmux forward"`, then `kill <pid>` in a separate call.
+- A finished `device-run.sh` sometimes stays alive after `Verifying 100%`. It's harmless; leave it.
 - `magick` (ImageMagick) is available for cropping screenshots; PIL is not.
-- Verified grading loop: `/exercise` → `/autoplay` → `sleep` → `/practice` → screenshot.
-- In Swift 6, statics read from `nonisolated` code (such as CoreMIDI callbacks) inside a `@MainActor` class must be marked `nonisolated` themselves.
-- For press-and-hold controls (piano keys), use `DragGesture(minimumDistance: 0)` with `onChanged` (track a held set) and `onEnded`. `onLongPressGesture(minimumDuration: 0, pressing:)` reports the release immediately, so notes were silent.
-- Swift LSP: `~/.local/bin/sourcekit-lsp` points at `/usr/lib/swift/usr/bin/sourcekit-lsp`. The old docker wrapper was `~/dev/tools/xtool-docker/bin/sourcekit-lsp`. The project's `.bsp/xtool.json` gives it iOS SDK context via `xtool dev build-server`. Claude Code uses it through the `swift-lsp` plugin.
-- `MIDIUniqueID` needs `import CoreMIDI` in every file that names it.
+- In Swift 6, statics read from `nonisolated` code inside a `@MainActor` class must be marked `nonisolated` themselves.
+- Swift LSP: `~/.local/bin/sourcekit-lsp` points at `/usr/lib/swift/usr/bin/sourcekit-lsp`; the project's `.bsp/xtool.json` gives it iOS SDK context via `xtool dev build-server`.
 - Binding the debug server to IPv4 loopback is enough for `usbmux forward`.
-- A background agent editing `MusicCore` at the same time as a build can break the app build. Run builds when no one is mid-edit.
+- `xtool dev build` compiles every package at `-Onone`, even local path dependencies (FINDINGS 74); put `swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))]` on a heavy Core target.
