@@ -12,7 +12,7 @@ Concrete files to start from are in `scaffold.md`.
 |---|---|---|
 | HTTP | `net/http` `ServeMux` — it does method + wildcard patterns (`GET /products/{slug}`) | chi, gin, echo, fiber |
 | HTML | `html/template`, server-rendered | a JSON API + SPA |
-| Interactivity | htmx, **vendored into the binary** | React/Vue/Svelte; an htmx CDN link |
+| Interactivity | htmx 4, **vendored into the binary** | React/Vue/Svelte; an htmx CDN link |
 | CSS | plain modern CSS: custom properties, native nesting, `clamp()` | Tailwind, Bootstrap, any framework |
 | DB | **SQLite** (single instance) or **Postgres** via `jackc/pgx/v5` — see below, and `sqlite.md` | an ORM; `lib/pq` |
 | Queries | **sqlc** on Postgres; `database/sql` + typed store methods on SQLite | GORM, ent |

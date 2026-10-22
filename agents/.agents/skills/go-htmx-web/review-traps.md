@@ -44,17 +44,52 @@ Enforce it: a test that asserts no served page contains `onchange=` (or any `on*
 and that each filter form has a submit button. And **check admin UI in a browser** —
 this is the canonical example of what the suite cannot reach.
 
-### ⚠️ htmx's indicator styles fail *open* under a strict CSP
+### ⚠️ htmx 4 validates a form before every request it sends — bubbles included
 
-htmx injects its `.htmx-indicator` rules as a `<style>` block. `style-src 'self'`
-blocks it silently, and the rule that *hides* an indicator is the one lost — so a
-spinner sits permanently visible. Set `includeIndicatorStyles:false` in the
-`htmx-config` meta tag and put the three rules in your stylesheet. Keep both or
-drop both.
+On a `<form>` (not `novalidate`), htmx 4 calls `form.reportValidity()` before each
+request, GETs too. A live preview (`hx-get` + `hx-trigger="change"`) on a form with
+`required` fields therefore pops "Please fill in this field" and steals focus on
+every change while it is half filled, and sends nothing. htmx 2 checked silently.
+Headless Chromium shows no bubble, so a browser check misses it too unless you
+assert a request went out. Put `hx-validate="false"` on a preview form and let the
+endpoint handle incomplete input; the real submit still validates natively.
 
-While there: htmx does not swap 4xx/5xx by default, so a server's refusal (a
-declined delete, a validation failure) is swallowed and the page looks like nothing
-happened. Configure `responseHandling` to swap error codes.
+### ⚠️ htmx 4's default sync can leave a preview stale
+
+The default is `queue first`: while a request is in flight the next one is queued
+with the form values *captured when its event fired*, and further ones are dropped.
+Three quick edits show the second one's result. htmx 2 queued the last and read the
+form late. Use `hx-sync="replace"` (abort and send the newest) on anything that
+previews form state.
+
+### ⚠️ htmx 4 upgrade: things that fail quietly
+
+- **Pin the version.** npm's `latest` tag stayed on 2.x after 4.0.0 shipped (4 is
+  `next`), so "install latest" gets 2. `npx htmx.org@4 upgrade-check ./` lists
+  `file:line` fixes.
+- **Stale 2.x config is silently ignored.** `includeIndicatorStyles`,
+  `responseHandling` and friends do nothing in 4, so a leftover `htmx-config` meta
+  looks meaningful and isn't.
+- **4xx/5xx swap by default** (only 204/304 don't). A full error page returned with
+  an error status now replaces the target. Restore 2.x behaviour with
+  `noSwap: [204,304,"4xx","5xx"]` or per element with `hx-status:4xx="swap:none"`.
+- **Inheritance is explicit.** A parent's `hx-target`/`hx-swap`/`hx-include`/
+  `hx-indicator` reaches children only as `hx-target:inherited="…"`; otherwise the
+  child silently swaps its own innerHTML.
+- **`hx-get` on a button inside a form no longer sends the form's fields** — add
+  `hx-include="closest form"`. An `hx-get` on the form itself still does.
+- **Renames:** `hx-disable` → `hx-ignore`, `hx-disabled-elt` → `hx-disable`; events
+  are colon-separated (`htmx:after:swap`); `HX-Trigger`/`HX-Trigger-Name` request
+  headers became `HX-Source` (`tag#id`); `HX-Trigger-After-Swap/Settle` are gone.
+- **CSP:** the indicator CSS is now a constructable stylesheet, which `style-src`
+  doesn't govern — the htmx 2 "indicator styles fail open" trap (and its
+  `includeIndicatorStyles:false` + rules-in-your-stylesheet workaround) is gone.
+  Requests use `fetch`, still under `connect-src`. `hx-on`, `js:` values and trigger
+  filters use `new Function`, which `script-src` without `'unsafe-eval'` blocks —
+  that is the control; there is no `allowEval` switch in 4.
+
+Handler tests prove none of this: drive the page in a browser and assert the
+requests and swaps.
 
 ### ⚠️ CSP source paths are exact matches, not prefixes
 

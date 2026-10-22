@@ -443,9 +443,13 @@ button, .button {
 
 ## htmx, vendored
 
-Download the release into `internal/handler/static/htmx.min.js` alongside
-`htmx.LICENSE`, and record the version and its source URL in a
-`internal/handler/static/README.md`. That note is embedded with everything else but its
+Use **htmx 4** — the newest 4.x release, pinned explicitly, because npm's `latest` tag
+may still point at 2.x. Take `dist/htmx.min.js` (the classic build, for `<script defer>`;
+not `htmx.esm.min.js`) from the npm tarball after checking the tarball's sha512 against
+the registry's `.dist.integrity`. Put it in `internal/handler/static/htmx.min.js`
+alongside `htmx.LICENSE`, and record the version, source URL and SHA-256 in
+`internal/handler/static/README.md`. No `htmx-config` meta is needed under the strict
+CSP; see the htmx 4 entries in `review-traps.md` before adding preview forms. That note is embedded with everything else but its
 `.md` extension is not in the content-type map, so it is never served.
 
 No CDN link: it would mean widening `script-src` and putting a request to someone else's
