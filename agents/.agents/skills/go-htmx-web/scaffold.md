@@ -443,8 +443,12 @@ button, .button {
 
 ## htmx, vendored
 
-Use **htmx 4** — the newest 4.x release, pinned explicitly, because npm's `latest` tag
-may still point at 2.x. Take `dist/htmx.min.js` (the classic build, for `<script defer>`;
+**Always use the newest htmx release** — currently 4.x — pinned explicitly. Look it up
+when founding a project and whenever you touch the vendored copy: `npm view htmx.org
+versions --json` and take the highest stable version, **not** `npm view htmx.org version`,
+because npm's `latest` dist-tag lagged on 2.x for months after 4.0.0 shipped (it was tagged
+`next`). When a new major appears, read its upgrade notes and `review-traps.md` before
+switching. Take `dist/htmx.min.js` (the classic build, for `<script defer>`;
 not `htmx.esm.min.js`) from the npm tarball after checking the tarball's sha512 against
 the registry's `.dist.integrity`. Put it in `internal/handler/static/htmx.min.js`
 alongside `htmx.LICENSE`, and record the version, source URL and SHA-256 in

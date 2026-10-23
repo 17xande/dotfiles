@@ -12,7 +12,8 @@ Concrete files to start from are in `scaffold.md`.
 |---|---|---|
 | HTTP | `net/http` `ServeMux` — it does method + wildcard patterns (`GET /products/{slug}`) | chi, gin, echo, fiber |
 | HTML | `html/template`, server-rendered | a JSON API + SPA |
-| Interactivity | htmx 4, **vendored into the binary** | React/Vue/Svelte; an htmx CDN link |
+| Interactivity | htmx, **always the newest release** (currently 4.x), **vendored into the binary** | React/Vue/Svelte; an htmx CDN link; an older major because npm tags it `latest` |
+| Richer UI | **Web components** when a page needs more than htmx + CSS: Web Awesome (`@awesome.me/webawesome`, newest release) or small hand-written custom elements, vendored like htmx, no build step | React, Vue, Svelte, Astro, Next, or any framework/bundler pipeline that owns the page |
 | CSS | plain modern CSS: custom properties, native nesting, `clamp()` | Tailwind, Bootstrap, any framework |
 | DB | **SQLite** (single instance) or **Postgres** via `jackc/pgx/v5` — see below, and `sqlite.md` | an ORM; `lib/pq` |
 | Queries | **sqlc** on Postgres; `database/sql` + typed store methods on SQLite | GORM, ent |
@@ -135,8 +136,11 @@ from" is not a substitute for a good bundled theme. Ship a real one.
 - **Native nesting** (`&:hover`, `> .child`), `clamp()` for fluid type *and* fluid grid
   minimums, `aspect-ratio` for image wells, `color-mix(in oklab, …)` for derived hovers,
   `text-wrap: balance`, and a `@media (prefers-reduced-motion: reduce)` block.
-- **No web fonts** — a system font stack keeps the CSP tight and adds no third-party
-  request to the payment path.
+- **Fonts: a system font stack by default; a brand font when the brand has one.** Prefer
+  self-hosting it (an embedded `woff2`, `font-src 'self'`) when that is easy, which it
+  usually is for OFL fonts. External embeds from reputable sources (Google Fonts,
+  Font Awesome) are acceptable when self-hosting is not practical. Widen `font-src` and
+  `style-src` deliberately for exactly that origin, and keep them off any payment path.
 - Responsive without breakpoints where possible:
   `grid-template-columns: repeat(auto-fill, minmax(clamp(9rem, 30vw, 15rem), 1fr))`
   gives 2-up on a phone and 4-up on a desktop with zero media queries. A flat `minmax()`

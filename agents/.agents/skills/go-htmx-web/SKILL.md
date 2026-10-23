@@ -57,7 +57,9 @@ the LSP when the question is about a *symbol*.
 afterthought — navigate, click the thing you changed, submit the form, and read the
 console. A handler test never runs JavaScript and never enforces a CSP, so the browser is
 the only place a whole class of bug is visible (see `review-traps.md`, which opens with two
-of them). Headless `--screenshot` is the fallback when the MCP server is unavailable, not
+of them). **Run it headless** (the server is configured with `--headless --isolated`);
+never open visible browser windows on the user's desktop unless you need the user's input
+in that window, and say so first. Headless `--screenshot` is the fallback when the MCP server is unavailable, not
 the default.
 
 ## Adding a dependency mid-flight
@@ -261,6 +263,9 @@ form — at desktop *and* phone widths, and check for a horizontally scrolling b
 
 ## Working style
 
+**Who does what is in the `dev-workflow` skill — load it too.** Opus plans and asks the
+architecture questions, Sonnet orchestrates, Sonnet (or Codex Sol) agents implement each
+phase under a 45-minute cap, a separate Opus agent reviews every phase.
 
 - **A phased plan, in a file outside the repo** (`~/.claude/plans/<name>.md` —
   the same place whichever agent you are, so the trail survives switching). Build one
