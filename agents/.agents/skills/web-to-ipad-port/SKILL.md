@@ -15,6 +15,7 @@ Default stance: greenfield, data disposable (recreate DBs, wipe the iPad) unless
 - Put specs the two sides share in the iPad repo's `docs/` (metrics, pens, strokes) or the web's `docs/` (sync-api, handoff). A spec is the contract; code follows it on both sides.
 
 ## 2. Agents
+- The general workflow (Opus plans, Sonnet orchestrates, 15-minute check-ins and a 45-minute cap per agent, Codex Sol when asked) is the `dev-workflow` skill; load it too. Below is what is specific to a port.
 - **Sonnet agents implement**, each with a precise brief: goal, files to read first, the spec sections, exact function names and signatures, test commands, what not to touch, "commit but do not push" or "commit and push", and the one-agent-on-the-iPad rule. Vague briefs produce drift.
 - **Opus agents review each milestone, read-only**, against the spec and the web code. Findings must be verified (a failing test, a quoted line, a reproduced behaviour), not speculation.
 - Then a **fix round** (Sonnet) for the verified findings, a re-run of all suites, then a **device check** (deploy, drive with debug routes, screenshot).
