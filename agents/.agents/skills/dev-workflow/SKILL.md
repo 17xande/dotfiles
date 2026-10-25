@@ -88,6 +88,14 @@ an Opus agent when the user has granted best judgement, see 1).
   diff against the plan and the stack skill's review checklist (go-htmx-web's
   `review-traps.md`, etc.). Give it the code and the plan, not your conclusions.
 - Findings must be verified (a failing test, a quoted line, a reproduced behaviour).
+- **Give the reviewer a severity rubric**, or every round finds a new "high". High or
+  critical only for a defect a user or attacker would hit (with the input and the wrong
+  result), data loss, a security hole, or a check shown (by a mutation) to be unable to
+  fail. A test that could be stronger for behaviour that is correct today, or a skill
+  convention that does not change runtime behaviour, is medium at most. Decisions
+  recorded in the plan are settled. "Nothing at high" is a normal outcome.
+- A one-line fix to a non-blocking finding may skip a re-review **on the user's word**;
+  say so in the commit message and the phase outcome.
 - Triage: send verified fixes back to the implementer (`SendMessage` to keep its
   context) or a fresh agent; re-run the full verification gate; commit.
 - Reviewing it yourself is not a substitute for the Opus reviewer.
@@ -99,3 +107,12 @@ an Opus agent when the user has granted best judgement, see 1).
 - Commit at each logical unit; never push without explicit confirmation.
 - **Confirm with the user before crossing a phase boundary** unless they have explicitly
   said to run through several phases; then go back to 3.
+
+## As a swamp factory
+
+The same workflow runs as two stagecraft factories in `~/.swamp/workspaces/claude-skills`
+(repo `17xande/swamp-web-factory`): `web-plan` (plan, plan review, your approval, one
+`go-web` child per phase, release) and `go-web` (brief, a sandboxed cli-agent implementer
+climbing Sonnet to Opus by cycle, verify, four Opus reviewers, your phase approval). Use it
+when the user asks for the factory or a tracked work item; drive it with the `stagecraft`
+skill, and record every human decision on the user's word only.

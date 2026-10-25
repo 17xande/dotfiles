@@ -19,7 +19,9 @@ has no assets, no shell, and runs as non-root.
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-COPY go.mod go.sum ./
+# go.* rather than go.mod go.sum: a dependency-free module has no go.sum, and
+# naming it would fail the build.
+COPY go.* ./
 RUN go mod download
 
 COPY . .
@@ -451,8 +453,10 @@ because npm's `latest` dist-tag lagged on 2.x for months after 4.0.0 shipped (it
 switching. Take `dist/htmx.min.js` (the classic build, for `<script defer>`;
 not `htmx.esm.min.js`) from the npm tarball after checking the tarball's sha512 against
 the registry's `.dist.integrity`. Put it in `internal/handler/static/htmx.min.js`
-alongside `htmx.LICENSE`, and record the version, source URL and SHA-256 in
-`internal/handler/static/README.md`. No `htmx-config` meta is needed under the strict
+alongside `htmx.LICENSE`, and record the version, the tarball URL and its
+`dist.integrity` (so the bytes trace to the release) in
+`internal/handler/static/README.md`, with the file's SHA-256 on one fixed line,
+`sha256: <hex>`, that a test parses and checks against the embedded file. No `htmx-config` meta is needed under the strict
 CSP; see the htmx 4 entries in `review-traps.md` before adding preview forms. That note is embedded with everything else but its
 `.md` extension is not in the content-type map, so it is never served.
 

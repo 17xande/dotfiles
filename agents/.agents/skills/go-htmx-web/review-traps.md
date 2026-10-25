@@ -87,6 +87,23 @@ previews form state.
   Requests use `fetch`, still under `connect-src`. `hx-on`, `js:` values and trigger
   filters use `new Function`, which `script-src` without `'unsafe-eval'` blocks —
   that is the control; there is no `allowEval` switch in 4.
+- **`data-hx-` counts too.** htmx 4 honours the `data-hx-` prefix by default, so a
+  test guarding against `hx-on` must match `(?i)\s(data-)?hx-on[:-]`; `\shx-on`
+  alone lets `data-hx-on:click` through, and the CSP then refuses it silently. The
+  same goes for the other markup guards: match `src`/`href` with any quoting
+  (`'…'`, `"…"`, unquoted) and match `src` as a whole attribute so `data-src` is not
+  mistaken for it. Prove each guard by adding the forbidden markup and watching the
+  test fail.
+
+### ⚠️ A graceful-shutdown test that cannot fail
+
+"Cancel the context, then assert the in-flight request returned 200" passes even when
+the server calls `Close` instead of `Shutdown`: nothing orders the request against the
+shutdown. Order it explicitly: a test handler signals when entered and blocks; wait for
+the signal; cancel; poll (with a deadline) until a fresh dial is refused, so `Shutdown`
+has closed the listener; assert `run` has not returned; release the handler; assert 200
+and a nil error. Release the handler from `t.Cleanup` too, so an early `t.Fatal` cannot
+leave it blocked. Swap `Shutdown` for `Close` once to prove the test fails.
 
 Handler tests prove none of this: drive the page in a browser and assert the
 requests and swaps.

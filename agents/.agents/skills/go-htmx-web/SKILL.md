@@ -228,7 +228,7 @@ see — not when the suite goes green. `review-traps.md` is the checklist.
 
 ```sh
 gofmt -l . ; go vet ./... && make sqlc-check && \
-  TEST_DATABASE_URL="…" go test -count=1 ./...
+  TEST_DATABASE_URL="…" go test -race -count=1 ./...
 ```
 
 (`sqlc-check` only on Postgres. Use `-count=1`: a cached pass after an environment change
