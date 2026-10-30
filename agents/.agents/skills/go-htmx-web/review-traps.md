@@ -14,6 +14,9 @@ this still referenced" is only reliably answered by the LSP. Drive the UI with t
 DevTools MCP server and query symbols with the LSP tool — see "Tools" at the top of
 `SKILL.md`.
 
+⚠️ marks the ones that rated high under the `dev-workflow` severity rubric (a user or
+attacker hits it, data loss, a security hole, a check that cannot fail).
+
 ---
 
 ## The invisible ones: green tests, broken product
@@ -133,6 +136,22 @@ This was found in three separate phases, twice *after* being written down:
 `sqlite.md` for the shapes. Being able to recite the rule is not the same as
 applying it to the function you are writing.
 
+### ⚠️ A form that writes back an absolute value someone else changes
+
+The variant edit form was pre-filled with stock at page load and saved
+`stock_qty = $n`. A sale landing in between was overwritten: sold stock came back,
+and a later buyer was not flagged oversold. Write the change, not the value: a
+hidden `stock_was`, then `stock_qty = stock_qty + ($n - stock_was)`; a result below
+zero trips the `CHECK` and becomes a field error asking for a reload. Bound the
+input. Seeds and creation stay absolute. Any counter a background path also moves
+(stock, balance, quota) has this shape — check every writer, API tools included.
+
+### SQLite: deferred transactions and swallowed Scan errors
+
+A read-then-write transaction without `_txlock=immediate` fails with "database is
+locked" under contention, and a Scan error turned into a zero value makes data look
+absent. Both in `sqlite.md`.
+
 ### A list and its count must read the same rows
 
 `List` used `JOIN groups` while `Count` read the base table alone. An orphaned row
@@ -183,6 +202,39 @@ Put it behind the same limiter as the login POST. Note the login limiter's tight
 tier should *not* be keyed on a cookie — an attacker discards that for free before
 a login attempt — so key the tight tier on something they cannot drop, with a
 looser per-IP ceiling behind it.
+
+### ⚠️ A per-IP limiter keyed on the raw address
+
+Keyed on the full IPv6 address, 1000 addresses from one /64 each got a fresh
+bucket — every throttle bypassed — and the map grew without bound between sweeps.
+Key IPv6 by /64 (after unmapping `::ffff:a.b.c.d`, stripping any zone); cap the
+map; at the cap run a sweep (itself rate-limited, or the flood makes every request
+sweep) and, if still full, 429: fail closed, existing clients unaffected. Do not
+create the second-tier (email) bucket when the IP tier already refused, and bound
+that key's length, or a refused flood still fills the second map.
+
+### ⚠️ Client address from headers
+
+`X-Forwarded-For`/`CF-Connecting-IP` can carry `ip:port` or `[v6]:port`; keyed raw,
+each source port is a new client. Parse to the bare address, and set
+`MaxHeaderBytes` (64 KiB; the default 1 MB makes a huge limiter key possible) and
+`ReadHeaderTimeout` on the `http.Server`.
+`CF-Connecting-IP` is only trustworthy when Cloudflare is the sole way in (a
+tunnel); behind any other proxy that passes it through, the client sets it.
+
+### Unbounded password-hash concurrency
+
+argon2id at ~64 MiB each: fifty parallel logins exceed a 1 GiB container limit
+before any rate limit matters (it is per IP). Cap concurrent hashes with a
+semaphore sized from the memory limit.
+
+### An expired row behind a cookie must not 500
+
+A cart cookie outliving its swept row turned updating or removing a line into a
+500. Every path that loads a cookie-referenced row treats "not found" as the same
+expired state a missing cookie gets — and renders **the page or fragment the htmx
+target swaps** (the empty cart with the reason), not a small status block, which
+left the stale lines on screen.
 
 ### Parse a state change strictly; absent must not mean permissive
 
@@ -359,3 +411,16 @@ above hit, every submission was still in the database with `email_sent = 0`.
   cost ~100ms and 64 MiB per verification.
 - **Assert a minimum count in any "every X must Y" test**, or it passes vacuously
   the day the fixture stops loading.
+- **⚠️ Tests that skip silently without Postgres (or S3).** A green `go test ./...`
+  with no `TEST_DATABASE_URL` ran none of the SQL. Run the gate with the database
+  up, state how many tests skipped, and make CI run DB and S3 tests for real.
+
+---
+
+## Docs
+
+- **Docs and comments that disagree with the code** (a limit, a sweep interval, a
+  list of limiters) — check each claim against the code it describes, in the same
+  review.
+- **No private sibling repos or local paths** (`~/dev/...`) in public docs or
+  comments; no session logs or "what we did today" in the README.

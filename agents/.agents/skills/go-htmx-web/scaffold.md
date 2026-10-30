@@ -2,7 +2,8 @@
 
 Concrete starting files. Replace `myapp` throughout. These are working shapes, not
 templates to follow blindly — drop what a given project has no use for (mailpit if it sends
-no mail, minio if it stores no files).
+no mail, rustfs if it stores no files). Versions here are a snapshot: re-pick each by the
+two-weeks rule in `setup.md`.
 
 Most of this file assumes Postgres. **On SQLite, skip the sqlc/goose/compose-Postgres
 parts and use "The SQLite variant" at the end instead**; the Dockerfile, styles, layout
@@ -16,7 +17,7 @@ has no assets, no shell, and runs as non-root.
 ```dockerfile
 # Build a static binary, then ship it alone. Templates and migrations are
 # go:embed'ed, so the runtime image has no assets and needs no shell.
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 
 # go.* rather than go.mod go.sum: a dependency-free module has no go.sum, and
@@ -27,7 +28,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/myapp .
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/myapp /myapp
 USER nonroot:nonroot
 EXPOSE 8080
@@ -40,6 +41,7 @@ dependency layer cached across source edits.
 ## Makefile
 
 ```makefile
+SHELL := bash
 COMPOSE ?= docker compose
 TEST_DATABASE_URL ?= postgres://myapp:myapp@localhost:5432/myapp?sslmode=disable
 
@@ -55,9 +57,11 @@ DEV_ENV = DATABASE_URL="$(TEST_DATABASE_URL)" SESSION_SECRET="$(SESSION_SECRET)"
 # modules and never links into it.
 SQLC_VERSION ?= v1.31.1
 SQLC ?= sqlc
+# Same reasoning; v1.1.x crashes on Go 1.27.
+GOVULNCHECK_VERSION ?= v1.9.0
 
-.PHONY: up down logs run build test vet fmt tidy psql migrate migrate-status \
-	sqlc sqlc-check sqlc-install
+.PHONY: up down logs run build test vet fmt fmt-check tidy psql migrate migrate-status \
+	sqlc sqlc-check sqlc-install vulncheck vulncheck-install
 
 ## up: build and start the whole local stack
 up:
@@ -100,15 +104,29 @@ sqlc-install:
 build:
 	go build ./...
 
+## vulncheck-install: install the pinned govulncheck
+vulncheck-install:
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+## vulncheck: fail on a reachable known vulnerability. CI runs it after the tests.
+vulncheck:
+	govulncheck ./...
+
 ## test: run every test, including the database-backed ones
 test:
-	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test ./...
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -race ./...
 
 vet:
 	go vet ./...
 
 fmt:
 	go fmt ./...
+
+## fmt-check: fail if a tracked Go file is not gofmt-clean *or does not parse*.
+# `gofmt -l` exits 0 while listing files, and prints a syntax error to stderr.
+fmt-check:
+	@bad="$$(gofmt -l $$(git ls-files '*.go') 2>&1)"; rc=$$?; \
+	if [ $$rc -ne 0 ] || [ -n "$$bad" ]; then echo "not gofmt-clean (or not parseable):"; echo "$$bad"; exit 1; fi
 
 tidy:
 	go mod tidy
@@ -125,13 +143,15 @@ server does not race the database on a cold start.
 ```yaml
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: myapp
       POSTGRES_PASSWORD: myapp
       POSTGRES_DB: myapp
-    ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:5432:5432"]
+    # Not .../data: Postgres 18 keeps a versioned subdirectory, and the old mount
+    # silently leaves the data on an anonymous volume.
+    volumes: [pgdata:/var/lib/postgresql]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U myapp -d myapp"]
       interval: 2s
@@ -143,15 +163,18 @@ services:
     image: axllent/mailpit
     ports: ["8025:8025"]
 
-  # S3-compatible object storage. Console at http://localhost:9001
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
+  # S3-compatible object storage, off by default:
+  # `docker compose --profile s3 up -d rustfs`, then create a bucket with
+  # curl --aws-sigv4 aws:amz:auto:s3 --user rustfsadmin:rustfsadmin -X PUT http://127.0.0.1:9000/<bucket>
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    profiles: ["s3"]
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [miniodata:/data]
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_VOLUMES: /data
+    ports: ["127.0.0.1:9000:9000"]
+    volumes: [rustfsdata:/data]
 
   server:
     build: .
@@ -170,7 +193,7 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  rustfsdata:
 ```
 
 ## .github/workflows/ci.yaml
@@ -189,7 +212,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: myapp
           POSTGRES_PASSWORD: myapp
@@ -206,10 +229,10 @@ jobs:
       TEST_DATABASE_URL: postgres://myapp:myapp@localhost:5432/myapp?sslmode=disable
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26"
+          go-version: "1.27"
           cache: true
 
       # The generated stores must match the SQL they came from. A query edited
@@ -217,6 +240,7 @@ jobs:
       # and runs the old statement.
       - run: make sqlc-install
       - run: make sqlc-check
+      - run: make fmt-check
 
       - run: go vet ./...
       - run: go build ./...
@@ -224,10 +248,14 @@ jobs:
       # silently.
       - run: go test -race ./...
 
+      # Last on purpose: a newly published CVE must not hide the test results.
+      - run: make vulncheck-install
+      - run: make vulncheck
+
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t myapp:ci .
 ```
 
@@ -503,7 +531,9 @@ CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions(created_at);
 func Open(path string) (*sql.DB, error) {
 	// _foreign_keys=on because SQLite enforces no foreign key without it: every
 	// REFERENCES in the schema above is decoration until this is set.
-	dsn := fmt.Sprintf("file:%s?_foreign_keys=on", path)
+	// _txlock=immediate so a read-then-write transaction takes the write lock at
+	// BEGIN; deferred, the upgrade fails with "database is locked".
+	dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_txlock=immediate", path)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -581,5 +611,5 @@ recreate-db:
 	go run ./cmd/seed
 ```
 
-`compose.yaml` keeps `mailpit` (and `minio` if used) and drops the `db` service; the
+`compose.yaml` keeps `mailpit` (and `rustfs` if used) and drops the `db` service; the
 database is a file on a mounted volume.

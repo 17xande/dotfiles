@@ -68,7 +68,9 @@ references where `grep -rn 'New('` returned **55**, nearly all of them `errors.N
    suggested fixes as diffs — review them, apply if correct, re-run. `hint` and `info`
    diagnostics can be ignored when unrelated to the task.
 5. **`go_vulncheck`** when `go.mod` changed — after the build errors are gone. Adding a
-   dependency without this is how a known CVE arrives unnoticed.
+   dependency without this is how a known CVE arrives unnoticed. It is not the gate: the
+   project's pinned `make vulncheck` (govulncheck v1.9.0+; v1.1.x crashes on Go 1.27) is
+   what CI runs, so run that too.
 6. **Run tests** only once diagnostics are clean. Iterate narrowly (`go test ./internal/x/`)
    and gate broadly before committing (the project's own `make test` or `go vet ./...`).
 

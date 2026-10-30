@@ -20,7 +20,7 @@ Concrete files to start from are in `scaffold.md`.
 | Migrations | **goose** on Postgres; **none** on greenfield SQLite — drop and recreate | a hand-rolled migration runner, or startup `ALTER`s |
 | Config | env vars only, parsed into one struct in `internal/config` | viper, config files |
 | Money | integer cents (`PriceCents int64`) | float, a decimal library |
-| Container | multi-stage build → `distroless/static-debian12:nonroot` | alpine + a shell in production |
+| Container | multi-stage build → `distroless/static-debian13:nonroot` | alpine + a shell in production |
 
 ## Choosing the database
 
@@ -63,7 +63,7 @@ Libraries that have earned their place in this style:
 | `golang.org/x/crypto` | `argon2` for passwords (`bcrypt` to keep old hashes verifying) |
 | `golang.org/x/time/rate` | Token bucket behind rate limits |
 | `wneessen/go-mail` | MIME, RFC 2047 subjects, quoted-printable, STARTTLS |
-| `minio/minio-go/v7` | Object storage over the S3 API (R2, GCS interop, MinIO) |
+| `aws/aws-sdk-go-v2` (`service/s3`, `feature/s3/manager`, `credentials`) | Object storage over the S3 API (R2, GCS interop, RustFS). Replaced `minio-go`: MinIO's community edition is in maintenance mode |
 
 Deliberately **not** taken: a router, a validation library (struct tags fight the
 per-field messages real forms need), a decimal type, a UUID library (the database
@@ -73,7 +73,14 @@ generates ids).
 (`SQLC_VERSION ?= v1.31.1` + a `sqlc-install` target), not via a `go tool` directive: it
 never links into the binary, and a `go tool` directive would put ~40 indirect modules
 into the file that documents what the *server* depends on. Keep `go.mod` a truthful
-statement of the binary's dependencies.
+statement of the binary's dependencies. govulncheck likewise
+(`GOVULNCHECK_VERSION ?= v1.9.0`, installed with `go install`; v1.1.x crashes on Go 1.27).
+
+**Which version: the newest tag at least two weeks old** — for modules, tools, actions
+and images alike. A fresh release has had no time to be yanked or patched. Example: on
+2026-10-30 that gave `service/s3` v1.114.3, `feature/s3/manager` v1.23.14,
+`credentials` v1.20.9, not the releases of that week. Updating is a standing part of any
+review (see `SKILL.md`).
 
 Record decisions you deliberately defer in a **"Decisions still open"** table in the
 README (candidate + the trigger that would force it), so they get decided deliberately
@@ -88,7 +95,20 @@ records a *key*, and the storage backend resolves it to a URL. Put a `Storage` i
 unconfigured (refuses), and a fake for tests. Local disk + a volume mount is the dev
 story; a bucket is the production one, and the same code serves both.
 
-Provider preference: **Cloudflare R2 > GCS > local/OSS > Amazon.**
+Provider preference: **Cloudflare R2 > GCS > local/OSS > Amazon.** The self-hosted and
+test server is **RustFS** (`rustfs/rustfs`), not MinIO (community edition in maintenance
+mode).
+
+The S3 client is the AWS SDK for Go v2, configured for non-AWS stores:
+
+- `UsePathStyle: true`, and `RequestChecksumCalculation` / `ResponseChecksumValidation`
+  set to `WhenRequired` — the SDK's default checksums are refused by some S3-compatible
+  servers.
+- Uploads through `manager.Uploader` with `PartSize = 16 MiB`, `Concurrency = 1`, so
+  memory stays constant whatever the file size; downloads via `s3.PresignClient`.
+- A contract test against a real server, gated by `BLOB_TEST_ENDPOINT`. **Run it after
+  every SDK update** — the fakes cannot see a changed wire default. It does not prove R2
+  itself; say so when reporting.
 
 ## Embed everything, override by directory
 
@@ -181,16 +201,27 @@ keeping a dead column forever.
 
 
 `compose.yaml` runs the real dependencies — Postgres, plus `mailpit` for outgoing mail and
-`minio` for S3 — so `make up` gives a working system with nothing stubbed. Publish
-development-only credentials in it (and say loudly in the README that they are published)
-so the quickstart actually works.
+`rustfs` for S3 behind a `profiles: ["s3"]` gate (so it does not bind 9000 by default) —
+so `make up` gives a working system with nothing stubbed. Publish development-only
+credentials in it (and say loudly in the README that they are published) so the
+quickstart actually works. Create a bucket with
+`curl --aws-sigv4 aws:amz:auto:s3 --user rustfsadmin:rustfsadmin -X PUT http://127.0.0.1:9000/<bucket>`.
+
+**Postgres 18** (`postgres:18-alpine`): mount the volume at **`/var/lib/postgresql`**,
+not `/var/lib/postgresql/data` — 18 keeps a versioned subdirectory, and the old mount
+silently puts the data on an anonymous volume that `down` loses. An existing 17 volume
+needs dump and restore; document it in the backups doc. **Passwords interpolated into
+`DATABASE_URL` must be URL-safe** (`openssl rand -hex 32`) or percent-encoded: pgx 5.11
+splits userinfo at the first `@`.
 
 Essential targets: `up down logs run migrate migrate-status seed hashpw psql sqlc
-sqlc-check sqlc-install build test vet fmt tidy`. `seed` depends on `migrate`, so seeding
-an unmigrated database reports a missing migration rather than a missing table.
+sqlc-check sqlc-install build test vet fmt fmt-check vulncheck vulncheck-install tidy`.
+`seed` depends on `migrate`, so seeding an unmigrated database reports a missing migration
+rather than a missing table. `SHELL := bash` if any recipe uses bash features.
 
-CI: `sqlc-check` → `go vet` → `go build` → `go test -race ./...` against a real Postgres
-service container, plus a `docker build` job. Database-backed tests run in CI, so a PR
-cannot break migrations silently.
+CI: `sqlc-check` → `fmt-check` → `go vet` → `go build` → `go test -race ./...` against a
+real Postgres service container → `vulncheck` (last, so a new CVE cannot hide the test
+results), plus a `docker build` job. Database-backed tests run in CI, so a PR cannot break
+migrations silently; the S3 contract test should run there too, against a RustFS service.
 
 See `scaffold.md` in this skill directory for the concrete starting files.

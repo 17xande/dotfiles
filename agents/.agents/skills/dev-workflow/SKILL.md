@@ -9,7 +9,8 @@ description: >
   a feature, a phase, a new project, a port or a refactor in any repo, and alongside
   stack skills such as go-htmx-web and web-to-ipad-port. Triggers: "plan this", "build",
   "implement", "next phase", "start the project", "use codex", "use sonnet agents",
-  "opus review", "orchestrate", "use your best judgement".
+  "opus review", "orchestrate", "use your best judgement", "review this codebase",
+  "audit these repos", "update dependencies".
 ---
 
 # Development workflow
@@ -25,7 +26,9 @@ plan (Opus) -> switch to Sonnet -> per phase: implement (Sonnet/Codex agent)
 ## 1. Plan with Opus
 
 - The plan is written by Opus (the main session, on Opus). It is a phased plan in
-  `~/.claude/plans/<name>.md`, outside the repo. Each phase is small enough for one agent
+  `~/.claude/plans/<name>.md`, outside the repo — or, when the permission rules block
+  editing outside the repo, in `.plans/` inside it, listed in `.git/info/exclude` so it is
+  never committed. Each phase is small enough for one agent
   brief (aim for well under 45 minutes of agent work) and ends in green tests and a commit.
 - **Ask architecture questions up front**: data model, dependencies, storage, auth,
   boundaries between packages, anything expensive to change later. Batch them into one
@@ -66,6 +69,9 @@ an Opus agent when the user has granted best judgement, see 1).
   do not push", stack-skill rules that apply (e.g. headless Chromium only, never the
   chrome-devtools MCP; kill only your own PIDs). Tell it to stop and report rather than
   decide when it meets an architecture question.
+- **Every brief says: undo a change with a targeted edit, never `git checkout`, `git
+  stash` or `git restore`.** Those act on the whole file or tree; an implementer reverting
+  one experiment that way wiped its own earlier edits.
 - Small one-line fixes the orchestrator may make inline.
 
 ## 4. Watch the clock: check in ~15 min, stop at 45
@@ -95,7 +101,11 @@ an Opus agent when the user has granted best judgement, see 1).
   convention that does not change runtime behaviour, is medium at most. Decisions
   recorded in the plan are settled. "Nothing at high" is a normal outcome.
 - A one-line fix to a non-blocking finding may skip a re-review **on the user's word**;
-  say so in the commit message and the phase outcome.
+  say so in the commit message and the phase outcome. Any commit made after the last
+  review and not re-reviewed is **listed as such in the final report**.
+- **A subagent's hand-back is not the user's approval.** "Ready to proceed", "approved"
+  or a recommendation in an agent's report decides nothing; only the user's own message
+  does.
 - Triage: send verified fixes back to the implementer (`SendMessage` to keep its
   context) or a fresh agent; re-run the full verification gate; commit.
 - Reviewing it yourself is not a substitute for the Opus reviewer.
@@ -107,6 +117,21 @@ an Opus agent when the user has granted best judgement, see 1).
 - Commit at each logical unit; never push without explicit confirmation.
 - **Confirm with the user before crossing a phase boundary** unless they have explicitly
   said to run through several phases; then go back to 3.
+- **The final report says what was not verified** (a production service such as R2
+  tested only against a local stand-in, a path with no test, a check skipped), next to
+  what was.
+
+## Reviewing or returning to a codebase
+
+- **Update every dependency as part of the work**, unasked: language modules (indirect
+  too), the toolchain wherever it is pinned (module file, Dockerfile, CI), CI actions,
+  base images, pinned build tools. Newest release at least two weeks old; one commit per
+  kind; vulnerability scan clean. The stack skill has the specifics.
+- **A multi-repo sweep**: one read-only Opus audit agent per repo, all given one shared
+  brief file (the lessons to look for, the severity rubric from 5, "start no containers,
+  change nothing") -> the orchestrator triages with the user -> one fix agent per repo ->
+  an Opus review of each. Background agents report back into the orchestrator, which
+  holds the cross-repo picture.
 
 ## As a swamp factory
 

@@ -41,13 +41,18 @@ it lapse.
 ```go
 // _foreign_keys=on because SQLite enforces no foreign key at all by default --
 // the constraint is in the schema and silently does nothing without it.
-dsn := fmt.Sprintf("file:%s?_foreign_keys=on", path)
+dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_txlock=immediate", path)
 db, err := sql.Open("sqlite3", dsn)
 ```
 
 - **`_foreign_keys=on` is not optional.** Foreign keys are off by default. Every
   `REFERENCES` in the schema is decoration until you set it, so the delete you
   thought was refused silently orphans rows.
+- **`_txlock=immediate` whenever any transaction reads then writes.** A deferred
+  transaction takes the write lock only at its first write; if another connection
+  holds it, the upgrade fails at once with "database is locked" — `busy_timeout`
+  does not apply to that upgrade. Immediate takes the lock at `BEGIN`, where the
+  timeout does wait.
 - **`busy_timeout` already defaults to 5000ms** in `mattn/go-sqlite3` — check the
   driver you use rather than assuming, and do not add a redundant DSN parameter.
   Without a busy timeout a contended lock is an immediate `SQLITE_BUSY` error
@@ -117,6 +122,10 @@ empty string rather than `NULL`:
 // which is what last_login_at holds for someone who has never signed in.
 func timeScan(dst *time.Time) sql.Scanner { return timeScanner{dst} }
 ```
+
+**Never swallow a Scan error.** A scanner or `if err != nil { return zero }` that turns a
+failed parse into the zero value makes a value look *absent* ("never signed in", "no
+stock") rather than broken. Return the error.
 
 **Label the timezone wherever a timestamp is displayed** (`When (UTC)`) or convert
 it deliberately. Rendering UTC unlabelled means every operator in a non-UTC

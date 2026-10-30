@@ -14,7 +14,7 @@ description: >
   "should I use <framework/library>", "sqlite or postgres", "set up migrations",
   "add a dependency", "scaffold", htmx, sqlc, goose, STRICT tables, "admin area",
   "admin page", CSP, "review this", "why is this broken", "look and feel",
-  "default theme".
+  "default theme", "update dependencies", S3, object storage, rate limit.
 ---
 
 # Go + htmx web applications
@@ -75,6 +75,18 @@ small, widely-reviewed library over hand-rolling anything security-sensitive; pr
 dozen lines of your own over a thin wrapper around what the stdlib already does. Record a
 deferred choice in the README's "Decisions still open" table so it is decided deliberately
 rather than by lapsing.
+
+## Reviewing or returning: update every dependency
+
+When reviewing a codebase, or coming back to one after a while, **updating all
+dependencies is part of the work**, unasked: Go modules including indirect ones
+(`go get -u ./... && go mod tidy`), the Go toolchain in `go.mod`, the Dockerfile and CI,
+pinned CI actions, base images, and pinned build tools (sqlc, govulncheck). Pick each
+version by the rule in `setup.md` (newest tag at least two weeks old). Each kind gets its
+own commit, the gate passes after each, and `govulncheck` is clean. A major that needs a
+data migration (Postgres 17 -> 18) is included too, with the dump-and-restore documented;
+skipping it as "too big" is the lapse. Stale dependencies are how a known CVE ships, and
+a big catch-up later is harder to review.
 
 ## Layout
 
@@ -158,9 +170,17 @@ Set this up early; retrofitting is worse.
   is invisible to `curl` and to the rendered markup — only a real browser enforces it.
   Strip to scheme+host for CSP purposes (a `PublicOrigin()` helper) and regression-test it.
 - **argon2id** password hashing in PHC string format, dispatching on prefix so bcrypt
-  hashes keep verifying.
+  hashes keep verifying. **Cap concurrent hashes** with a semaphore sized against the
+  container memory limit: each costs ~64 MiB, so a burst of logins is an OOM kill.
 - **Per-IP rate limits**: `x/time/rate` token bucket in a keyed map with a lazy eviction
-  sweep.
+  sweep. **Key IPv6 by its /64** (unmap v4-mapped, strip the zone), or one prefix gets a
+  fresh bucket per address. **Hard-cap the map**: at the cap, run a (rate-limited) sweep,
+  and if it is still full refuse with 429 — fail closed. Create a second-tier key
+  (email/username) only after the IP check passed, and bound its length.
+- **Client IP from headers**: strip `ip:port` / `[v6]:port` to the bare address before
+  keying; `CF-Connecting-IP` is trustworthy only when Cloudflare is the *only* way in (a
+  tunnel) — behind any other proxy that passes it through, it is client-chosen. Set
+  `http.Server{ReadHeaderTimeout, MaxHeaderBytes: 64 << 10}`.
 - **CSRF** via nosurf, incl. origin checks. Cookies `SameSite=Lax`; scope the cart/session
   cookie to its path so catalog pages stay cacheable and embeddable.
 - **HSTS off by default** — a browser ignores it over plain HTTP, and sending it from
@@ -208,7 +228,11 @@ Set this up early; retrofitting is worse.
   `_test.go` next to the file it covers.
 - Test against a **real database** — `TEST_DATABASE_URL` + an `internal/dbtest` helper on
   Postgres; a temp-file database per test on SQLite. Not mocks. Fakes are for the
-  storage/mail boundary, where the real thing is a network service.
+  storage/mail boundary, where the real thing is a network service — plus a contract test
+  against a real S3 server (RustFS), gated by an env var such as `BLOB_TEST_ENDPOINT`.
+- **A DB test that skips without its env var is not a pass.** Run the gate with the
+  database up, and report how many tests skipped (`go test -v … | grep -c -- '--- SKIP'`);
+  CI must run the DB and S3 tests for real.
 - **Test the code that talks to the network, not just the helper beside it.** A real
   SMTP-sending bug survived because only the header-sanitising function had a test. An
   in-process fake SMTP server is ~80 lines and worth it.
@@ -227,12 +251,14 @@ see — not when the suite goes green. `review-traps.md` is the checklist.
 **The verification gate before any commit:**
 
 ```sh
-gofmt -l . ; go vet ./... && make sqlc-check && \
-  TEST_DATABASE_URL="…" go test -race -count=1 ./...
+make fmt-check && go vet ./... && make sqlc-check && \
+  TEST_DATABASE_URL="…" go test -race -count=1 ./... && make vulncheck
 ```
 
 (`sqlc-check` only on Postgres. Use `-count=1`: a cached pass after an environment change
-is not a pass.)
+is not a pass. `gofmt -l . ;` is not a check — it exits 0 with files listed and ignores
+syntax errors; `fmt-check` fails on both, see `scaffold.md`. `vulncheck` runs last so a
+new CVE cannot hide the test results.)
 
 **Then drive it in a browser.** Not optional, and not satisfied by a screenshot of the
 happy path. Use the Chrome DevTools MCP server:
@@ -270,7 +296,8 @@ phase under a 45-minute cap, a separate Opus agent reviews every phase.
 - **A phased plan, in a file outside the repo** (`~/.claude/plans/<name>.md` —
   the same place whichever agent you are, so the trail survives switching). Build one
   phase at a time, each ending in a working, tested, committed state. Keep the plan out of
-  the codebase. **Record each phase's outcome back into the plan** — what shipped, what the
+  the codebase (if permissions block writing outside the repo, `.plans/` listed in
+  `.git/info/exclude` — see `dev-workflow`). **Record each phase's outcome back into the plan** — what shipped, what the
   review found, and what the next phase must not repeat. That written trail is what stops
   the same class of bug recurring three phases later (it recurred anyway twice; without the
   trail it would have been more).
