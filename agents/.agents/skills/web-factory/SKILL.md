@@ -42,10 +42,11 @@ about any misfit before starting:
 - Release image (`release/Dockerfile.go-web` in the workspace): `main` package
   at the module root, listens on :8080, builds with `CGO_ENABLED=0`, runs as a
   read-only distroless container with no data volume.
-- Staging: web-release copies a compose file from the workspace's `release/`
-  folder that is still fixed to factory-scratch. A new repo needs its own
-  staging compose file and that step made per repo before its first release;
-  say so at the start, and stop before release if it is still missing.
+- Staging: every repo gets the shared compose file
+  (`release/staging-compose.go-web.yaml`), run on this machine from the plan's
+  `release.stagingDir` and published on 127.0.0.1 at `release.port`. Each repo
+  needs its own stagingDir and a free port (factory-scratch uses 18081); check
+  with `ss -ltn` before proposing one.
 
 ## Starting a work item
 
@@ -66,7 +67,7 @@ rather than writing a new one:
   under `decisions` so reviewers treat them as settled.
 - Fill the repo, branch and anything else the schema needs from the repo;
   ask for what is missing (the `release` settings: image, source, stagingDir,
-  url, the first time a repo is released). Add no phase or decision of your
+  port, url, the first time a repo is released). Add no phase or decision of your
   own without asking.
 - Show the shaped plan to the person before recording it. Plan review still
   runs on it, then their plan approval.
