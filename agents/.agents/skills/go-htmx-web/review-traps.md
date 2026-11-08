@@ -10,8 +10,8 @@ A phase is not done when the tests pass; it is done when someone has looked for 
 class of bug the tests structurally cannot see.
 
 **Two of the sections below are only reachable with a browser** (the CSP ones), and "is
-this still referenced" is only reliably answered by the LSP. Drive the UI with the Chrome
-DevTools MCP server and query symbols with the LSP tool — see "Tools" at the top of
+this still referenced" is only reliably answered by the LSP. Drive the UI in a headless
+browser (never a visible window) and query symbols with the LSP tool — see "Tools" at the top of
 `SKILL.md`.
 
 ⚠️ marks the ones that rated high under the `dev-workflow` severity rubric (a user or

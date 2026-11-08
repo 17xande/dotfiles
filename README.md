@@ -1,32 +1,27 @@
 # My Dotfiles
 
-## Using stow
-```zsh
-stow -nvt ~ nvim
-```
+Two stow packages, plus a plugin marketplace. Preview with `stow -nvt ~ claude agents`;
+drop the `-n` to apply.
 
-Drop the `-n` to actually apply it. Packages: `zsh`, `nvim`, `starship`, `claude`.
+## claude
 
-## The claude package
+`~/.claude` pieces worth carrying between machines: `settings.json`, `CLAUDE.md`,
+`hooks/plan-file-allow.sh`, and `skills/` (each skill is a symlink into the `agents` package).
 
-Claude Code settings, and skills — reusable instructions it loads on demand.
+Deliberately not tracked: `.credentials.json` (OAuth token), `history.jsonl` and `projects/`
+(prompts and conversation transcripts), and `settings.local.json`. Put per-machine settings
+and secrets (the `env` block with API tokens) in `settings.local.json`, never in
+`settings.json` — this repo is public.
 
-Only `.claude/settings.json` and `.claude/skills/` are tracked, deliberately. The rest of
-`~/.claude` holds an OAuth token in `.credentials.json`, every prompt ever typed in
-`history.jsonl`, and tens of megabytes of conversation transcripts under `projects/`, none
-of which belongs in a public repo. `settings.local.json` stays untracked too — it is the
-per-machine override file, which is the whole point of it.
+Not portable: the `alex-local` marketplace path in `settings.json` is absolute
+(`/home/alex/dev/dotfiles/claude-plugins`), so clone this repo to `~/dev/dotfiles`.
+Plugins themselves are reinstalled from `enabledPlugins` and `extraKnownMarketplaces`.
+Hooks installed by other tools (herdr) and skills symlinked in by omarchy or swamp are not
+tracked.
 
-Two things in `settings.json` are **not portable**, and will need fixing on another
-machine: the `statusLine` command hardcodes `/home/alex`, and it points into a plugin cache
-directory named after a commit hash (`.../caveman/63e797cd753b/...`) that changes whenever
-that plugin updates.
+## agents
 
-Because `~/.claude` and `~/.claude/skills` already exist, stow descends and links each
-skill individually rather than folding the directory. Skills installed by something else
-— omarchy symlinks its own in — are left alone, and an unversioned scratch skill can sit
-alongside these without stow touching it.
-
+The skills themselves, under `.agents/skills/`. Stow links them to `~/.agents/skills/`.
 
 ## claude-plugins
 

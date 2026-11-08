@@ -1,25 +1,31 @@
 {
-  "model": "opus[1m]",
-  "statusLine": {
-    "type": "command",
-    "command": "bash \"/home/alex/.claude/plugins/cache/caveman/caveman/63e797cd753b/hooks/caveman-statusline.sh\""
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "sonnet",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.claude/hooks/plan-file-allow.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   },
   "enabledPlugins": {
-    "caveman@caveman": true,
-    "clangd-lsp@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": false,
     "gopls-lsp@claude-plugins-official": true,
-    "lua-lsp@claude-plugins-official": true,
-    "chrome-devtools-mcp@claude-plugins-official": true,
-    "cloudflare@cloudflare": true,
-    "deno-lsp@alex-local": true
+    "lua-lsp@claude-plugins-official": false,
+    "swift-lsp@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": false,
+    "cloudflare@cloudflare": false,
+    "deno-lsp@alex-local": true,
+    "frontend-design@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "JuliusBrussee/caveman"
-      }
-    },
     "cloudflare": {
       "source": {
         "source": "github",
@@ -33,8 +39,11 @@
       }
     }
   },
-  "effortLevel": "medium",
+  "modelSettings": {
+    "claude-opus-5": {
+      "effortLevel": "medium"
+    }
+  },
   "tui": "fullscreen",
-  "skipDangerousModePermissionPrompt": true,
-  "skipAutoPermissionPrompt": true
+  "theme": "dark"
 }

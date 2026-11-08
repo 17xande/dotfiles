@@ -66,8 +66,8 @@ an Opus agent when the user has granted best judgement, see 1).
   Run it with Bash `run_in_background`; read `-o` for its final report.
 - **The brief is the agent's whole context.** Goal, plan section, files to read first,
   exact names and signatures, test/verification commands, what not to touch, "commit,
-  do not push", stack-skill rules that apply (e.g. headless Chromium only, never the
-  chrome-devtools MCP; kill only your own PIDs). Tell it to stop and report rather than
+  do not push", stack-skill rules that apply (e.g. headless Chromium only, the
+  chrome-devtools MCP only if launched `--headless`; kill only your own PIDs). Tell it to stop and report rather than
   decide when it meets an architecture question.
 - **Every brief says: undo a change with a targeted edit, never `git checkout`, `git
   stash` or `git restore`.** Those act on the whole file or tree; an implementer reverting

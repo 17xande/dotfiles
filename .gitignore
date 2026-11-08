@@ -1,3 +1,2 @@
-nvim/.config/nvim/undo/
-nvim/.config/nvim/plugin/
-nvim/.config/nvim/lazy-lock.json
+claude/.claude/settings.local.json
+claude/.claude/.credentials.json

@@ -53,14 +53,23 @@ full workflow (gopls MCP tools; in Claude Code the `LSP` tool is the fallback). 
 ripgrep is for non-Go text. The file-edit tool is for file text. Neither is a substitute for
 the LSP when the question is about a *symbol*.
 
-**The Chrome DevTools MCP server for every UI change.** Not a screenshot as an
+**A real browser for every UI change — always headless.** Not a screenshot as an
 afterthought — navigate, click the thing you changed, submit the form, and read the
 console. A handler test never runs JavaScript and never enforces a CSP, so the browser is
 the only place a whole class of bug is visible (see `review-traps.md`, which opens with two
-of them). **Run it headless** (the server is configured with `--headless --isolated`);
-never open visible browser windows on the user's desktop unless you need the user's input
-in that window, and say so first. Headless `--screenshot` is the fallback when the MCP server is unavailable, not
-the default.
+of them). **Never open a visible window on the user's desktop** unless you need the user's
+input in it, and say so first; this rule controls everything below. The Chrome DevTools MCP
+is fine **only if it was launched with `--headless`**: check first with
+`pgrep -af chrome-devtools-mcp` and look for the flag. On this machine it has been launched
+`--isolated` *without* `--headless`, which pops a visible Chromium; if the flag is missing,
+do not use the MCP for checks — use headless Chromium directly (recipe below). Tell the user
+they can add `--headless` to the server's args to make it safe; never edit that config
+yourself.
+
+Headless loses nothing: since Chrome 112 headless is the full browser, so CSP
+enforcement, console errors, layout and screenshots behave the same. DevTools is just a
+protocol (CDP); a headless instance exposes it via `--remote-debugging-port`, and a person
+can attach their own DevTools through `chrome://inspect`.
 
 ## Adding a dependency mid-flight
 
@@ -260,26 +269,61 @@ is not a pass. `gofmt -l . ;` is not a check — it exits 0 with files listed an
 syntax errors; `fmt-check` fails on both, see `scaffold.md`. `vulncheck` runs last so a
 new CVE cannot hide the test results.)
 
-**Then drive it in a browser.** Not optional, and not satisfied by a screenshot of the
-happy path. Use the Chrome DevTools MCP server:
+**Then drive it in a browser, headless.** Not optional, and not satisfied by a screenshot
+of the happy path. Steps hold whether driven by a headless DevTools MCP or by headless
+Chromium over CDP (see "Tools" for the headless rule and when the MCP is allowed):
 
 1. Start the server on a **fresh, confirmed-free port** (`pgrep -af <binary>` first — a
    stale `go run` answering on the old port has produced confident false readings).
-2. `navigate_page` to the page you changed.
-3. `take_snapshot` — the a11y tree names every control, which is what you click by.
+2. Navigate to the page you changed.
+3. Inspect the DOM / a11y tree — it names every control, which is what you click by.
 4. **Interact**: click the button, change the select, submit the form. Assert on where it
    navigated and what changed, not just that the page rendered.
-5. `list_console_messages` — a CSP violation appears here and nowhere else.
-6. `resize_page` to 390×844 and look again: does the layout hold, and does the *body*
-   scroll sideways (it must not — wide content scrolls inside its own container)?
+5. Read the console — a CSP violation appears here (`Log.entryAdded`) and nowhere else.
+6. Re-check at 390×844: does the layout hold, and does the *body* scroll sideways
+   (`document.documentElement.scrollWidth` must not exceed `clientWidth`; wide content
+   scrolls inside its own container)?
 
-Fallback when the MCP server is unavailable:
+Headless recipe without the MCP (flags verified against Chromium 156):
 
 ```sh
-docker compose up -d --build server
-chromium --headless --disable-gpu --hide-scrollbars --window-size=1280,900 \
-  --screenshot=out.png http://localhost:8080/products
+# screenshots: desktop, then phone
+chromium --headless --disable-gpu --hide-scrollbars --window-size=1280,900 --screenshot=out.png URL
+chromium --headless --disable-gpu --hide-scrollbars --window-size=390,844  --screenshot=out-m.png URL
+# rendered DOM
+chromium --headless --disable-gpu --dump-dom URL
+# console / CSP errors, sideways scroll, clicks: a CDP session on a throwaway profile
+D=$(mktemp -d); chromium --headless --remote-debugging-port=9333 --user-data-dir=$D about:blank &
+CH=$!    # pick a port that is free; kill only $CH when done, then rm -rf $D
 ```
+
+Screenshots and `--dump-dom` run once and exit; they cannot click or read the console. For
+those, drive the CDP port from a short Node 22 script (built-in `WebSocket`, no deps):
+
+```js
+const [port, url] = process.argv.slice(2);
+const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+const ws = new WebSocket(webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
+let id = 0; const pend = new Map(), on = {};
+ws.onmessage = e => { const m = JSON.parse(e.data); m.id ? pend.get(m.id)(m.result) : on[m.method]?.(m.params); };
+const send = (method, params = {}, sessionId) => new Promise(r => { pend.set(++id, r);
+  ws.send(JSON.stringify({ id, method, params, sessionId })); });
+const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+on['Runtime.consoleAPICalled'] = p => console.log('console.' + p.type, p.args.map(a => a.value ?? a.description).join(' '));
+on['Log.entryAdded'] = p => console.log('log.' + p.entry.level, p.entry.text, p.entry.url ?? '');
+await send('Runtime.enable', {}, sessionId); await send('Log.enable', {}, sessionId);
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false }, sessionId);
+await send('Page.navigate', { url }, sessionId); await new Promise(r => setTimeout(r, 2000));
+const r = await send('Runtime.evaluate', { returnByValue: true, expression:
+  '[document.documentElement.scrollWidth, document.documentElement.clientWidth]' }, sessionId);
+const [sw, cw] = r.result.value; console.log(`scrollWidth=${sw} clientWidth=${cw}`, sw > cw ? 'BODY SCROLLS SIDEWAYS' : 'ok');
+await send('Target.closeTarget', { targetId }); ws.close();
+```
+
+Extend it with `Runtime.evaluate` (`document.querySelector(...).click()`) for step 4. If the
+user has restarted the MCP with `--browserUrl http://127.0.0.1:<port>` against such an
+instance, the MCP tools work against it headlessly too.
 
 Two real bugs of this exact shape, both HTTP 200 with correct markup and a green suite:
 the CSP `img-src` bug above showed a page of broken images, and an `onchange` filter
@@ -312,7 +356,7 @@ phase under a 45-minute cap, a separate Opus agent reviews every phase.
 - Comments explain *why* — the trade-off, the rejected alternative, the non-obvious
   constraint. The README carries the dependency rationale, not just a list.
 - Tooling is not a preference — see "Tools" at the top of this file. gopls (the `go-lsp`
-  skill) for Go symbols, Chrome DevTools MCP for every UI change.
+  skill) for Go symbols, a headless browser for every UI change.
 
 ## The rule that overrides convenience
 
