@@ -112,6 +112,9 @@
   "deniedMcpServers": [
     {
       "serverUrl": "https://*mcp.googleapis.com/*"
+    },
+    {
+      "serverName": "claude.ai Webflow"
     }
   ]
 }
