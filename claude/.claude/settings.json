@@ -1,5 +1,34 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)",
+      "Read(!.env.sample)",
+      "Read(!.env.template)",
+      "Read(.dev.vars)",
+      "Read(mise.local.toml)",
+      "Read(~/.ssh/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.netrc)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.codex/auth.json)",
+      "Read(~/.local/share/opencode/auth.json)",
+      "Read(~/.config/opencode/service.json)",
+      "Read(~/.local/state/omarchy/agents/accounts/**/.credentials.json)",
+      "Read(~/.local/state/omarchy/agents/accounts/**/auth.json)",
+      "Read(~/.config/gh/hosts.yml)"
+    ],
+    "ask": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push --force-with-lease *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Bash(sudo *)"
+    ]
+  },
   "model": "opus",
   "hooks": {
     "PreToolUse": [
@@ -33,17 +62,10 @@
     "lua-lsp@claude-plugins-official": false,
     "swift-lsp@claude-plugins-official": true,
     "chrome-devtools-mcp@claude-plugins-official": false,
-    "cloudflare@cloudflare": false,
     "deno-lsp@alex-local": true,
     "frontend-design@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "cloudflare": {
-      "source": {
-        "source": "github",
-        "repo": "cloudflare/skills"
-      }
-    },
     "alex-local": {
       "source": {
         "source": "directory",
@@ -85,35 +107,6 @@
       "**Primary use of Claude Code**: software development",
       "**Trusted repo**: the git repository at /home/alex/dev (its working directory) — it currently has no configured remotes, so there is no remote scope to trust beyond the local checkout itself",
       "**Org-specific CLIs**: None configured — frequently used but generic/personal tools observed (omarchy, pacman, steam, xdg-mime, hyprctl, supergfxctl, coredumpctl, nstat) do not indicate an organization"
-    ]
-  },
-  "permissions": {
-    "deny": [
-      "Read(.env)",
-      "Read(.env.*)",
-      "Read(!.env.example)",
-      "Read(!.env.sample)",
-      "Read(!.env.template)",
-      "Read(.dev.vars)",
-      "Read(mise.local.toml)",
-      "Read(~/.ssh/**)",
-      "Read(~/.gnupg/**)",
-      "Read(~/.netrc)",
-      "Read(~/.claude/.credentials.json)",
-      "Read(~/.codex/auth.json)",
-      "Read(~/.local/share/opencode/auth.json)",
-      "Read(~/.config/opencode/service.json)",
-      "Read(~/.local/state/omarchy/agents/accounts/**/.credentials.json)",
-      "Read(~/.local/state/omarchy/agents/accounts/**/auth.json)",
-      "Read(~/.config/gh/hosts.yml)"
-    ],
-    "ask": [
-      "Bash(git push --force *)",
-      "Bash(git push -f *)",
-      "Bash(git push --force-with-lease *)",
-      "Bash(git reset --hard *)",
-      "Bash(git clean *)",
-      "Bash(sudo *)"
     ]
   }
 }
