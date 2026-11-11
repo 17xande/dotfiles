@@ -5,13 +5,15 @@ drop the `-n` to apply.
 
 ## claude
 
-`~/.claude` pieces worth carrying between machines: `settings.json`, `CLAUDE.md`,
-`hooks/plan-file-allow.sh`, and `skills/` (each skill is a symlink into the `agents` package).
+`~/.claude` pieces worth carrying between machines: `settings.json`, `hooks/plan-file-allow.sh`,
+`CLAUDE.md` and `skills/`. `CLAUDE.md` and every skill are symlinks into the `agents` package:
+Claude Code reads only `CLAUDE.md` and `~/.claude/skills`, so those names have to exist, but
+nothing is maintained here.
 
 Deliberately not tracked: `.credentials.json` (OAuth token), `history.jsonl` and `projects/`
-(prompts and conversation transcripts), and `settings.local.json`. Put per-machine settings
-and secrets (the `env` block with API tokens) in `settings.local.json`, never in
-`settings.json` — this repo is public.
+(prompts and conversation transcripts). `settings.json` must stay free of secrets (this repo is
+public): no `env` block with tokens. A secret belongs to the project that uses it, in that
+project's git-ignored `.env` or `mise.local.toml`.
 
 Not portable: the `alex-local` marketplace path in `settings.json` is absolute
 (`/home/alex/dev/dotfiles/claude-plugins`), so clone this repo to `~/dev/dotfiles`.
@@ -21,7 +23,13 @@ tracked.
 
 ## agents
 
-The skills themselves, under `.agents/skills/`. Stow links them to `~/.agents/skills/`.
+The single source for instructions and skills shared by every agent CLI:
+
+- `.agents/AGENTS.md`: global instructions. `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and
+  `~/.config/opencode/AGENTS.md` are symlinks to `~/.agents/AGENTS.md` (`install.sh` makes the
+  last two; they are outside the stow packages).
+- `.agents/skills/`: the skills. Stow links them to `~/.agents/skills/`, which Codex and
+  OpenCode read directly.
 
 ## claude-plugins
 
