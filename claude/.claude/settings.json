@@ -108,5 +108,10 @@
       "**Trusted repo**: the git repository at /home/alex/dev (its working directory) — it currently has no configured remotes, so there is no remote scope to trust beyond the local checkout itself",
       "**Org-specific CLIs**: None configured — frequently used but generic/personal tools observed (omarchy, pacman, steam, xdg-mime, hyprctl, supergfxctl, coredumpctl, nstat) do not indicate an organization"
     ]
-  }
+  },
+  "deniedMcpServers": [
+    {
+      "serverUrl": "https://*mcp.googleapis.com/*"
+    }
+  ]
 }
