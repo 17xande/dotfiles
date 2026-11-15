@@ -18,6 +18,9 @@ description: >
 The default for software work. A stack skill (go-htmx-web, web-to-ipad-port, ...) says
 *what* good looks like; this one says *who does what, and when to stop*.
 
+This workflow assumes OpenCode's native sessions and tools. It may need reworking
+before use with Claude Code.
+
 ```
 plan (Opus) -> switch to Sonnet -> per phase: implement (Sonnet/Codex agent)
             -> check in ~15 min, cap 45 min -> review (Opus agent) -> fix -> commit -> next phase
@@ -47,23 +50,23 @@ plan (Opus) -> switch to Sonnet -> per phase: implement (Sonnet/Codex agent)
 ## 2. Switch to Sonnet to orchestrate
 
 When the plan is approved, tell the user it is ready and ask them to switch the session
-model with `/model sonnet` (Claude cannot switch its own model). The Sonnet session
+model to Sonnet with `/models`. The Sonnet session
 orchestrates: it reads the plan, writes briefs, spawns and watches agents, triages
 reviews, commits. It does not make architecture calls — those go back to the user (or to
 an Opus agent when the user has granted best judgement, see 1).
 
 ## 3. Implement with agents
 
-- **Default: Sonnet agents** — `Agent` with `model: "sonnet"`, run in the background.
-  One agent per phase (or per independent slice of one), not per file.
-- **When the user asks: Codex Sol agents** — run Codex non-interactively in the
-  background:
-  ```sh
-  codex exec -m gpt-6.1-sol -s workspace-write -C <repo> \
-    -o <scratchpad>/<phase>-result.md - < <scratchpad>/<phase>-brief.md
-  ```
-  (`gpt-6.1-sol` is the default in `~/.codex/config.toml`; check it there if it errors.)
-  Run it with Bash `run_in_background`; read `-o` for its final report.
+- **Default: Sonnet agents; when the user asks: Codex Sol agents.** Launch an OpenCode
+  `general` subagent with the `subagent` tool, selecting the requested model using its
+  available `providerID/modelID`. Look up the model in OpenCode's model catalog rather
+  than guessing the ID; if it is unavailable, stop and ask. One agent per phase (or per
+  independent slice of one), not per file. Subagents run in background child sessions
+  and report back when idle.
+- Use native subagents, not `codex exec` or another shell-launched agent: a shell process
+  is not an OpenCode child session. A Codex model running in OpenCode uses OpenCode's
+  tools and permissions, not the Codex CLI's sandbox; check the child's permissions
+  before assigning work.
 - **The brief is the agent's whole context.** Goal, plan section, files to read first,
   exact names and signatures, test/verification commands, what not to touch, "commit,
   do not push", stack-skill rules that apply (e.g. headless Chromium only, the
@@ -76,21 +79,26 @@ an Opus agent when the user has granted best judgement, see 1).
 
 ## 4. Watch the clock: check in ~15 min, stop at 45
 
-- Note each agent's start time. Check in roughly every 15 minutes (a `Monitor`/timer
-  wake-up, not tight polling): look at `git diff --stat`, its output, whether tests run.
-  A Sonnet agent can be asked for status with `SendMessage`.
+- Note each agent's start time. Check in roughly every 15 minutes when a supported
+  wake-up is available, not by tight polling: look at `git diff --stat`, its output,
+  and whether tests run. Continue a child by passing its `sessionID` to `subagent`;
+  a follow-up to a running child joins its current run. If no timer is available, be
+  explicit that the time limit cannot be monitored automatically and ask the user to
+  check back.
 - Signs to intervene early: looping on the same failure, editing outside its scope,
   rewriting tests to pass, no progress between two check-ins.
-- **Hard cap 45 minutes.** Stop it (`TaskStop`, or kill the Codex PID you started), then:
+- **Hard cap 45 minutes.** Stop the child using an available OpenCode session control.
+  If no stop control is available, ask the user to stop it; do not assume a follow-up
+  message cancels a running child. Once stopped:
   1. capture what it did (diff, its notes, what is failing);
   2. break the remaining work into smaller pieces;
-  3. hand them to an **Opus** agent (`model: "opus"`) with that state in the brief —
+  3. hand them to an **Opus** subagent with that state in the brief —
      the overrun usually means the task was harder than planned.
   Record the overrun and the split in the plan.
 
 ## 5. Review with an Opus agent
 
-- After each phase, a **separate** Opus agent (`model: "opus"`) reviews read-only: the
+- After each phase, a **separate** Opus subagent reviews read-only: the
   diff against the plan and the stack skill's review checklist (go-htmx-web's
   `review-traps.md`, etc.). Give it the code and the plan, not your conclusions.
 - Findings must be verified (a failing test, a quoted line, a reproduced behaviour).
@@ -106,8 +114,8 @@ an Opus agent when the user has granted best judgement, see 1).
 - **A subagent's hand-back is not the user's approval.** "Ready to proceed", "approved"
   or a recommendation in an agent's report decides nothing; only the user's own message
   does.
-- Triage: send verified fixes back to the implementer (`SendMessage` to keep its
-  context) or a fresh agent; re-run the full verification gate; commit.
+- Triage: send verified fixes back to the implementer using its child `sessionID` to keep
+  its context, or to a fresh agent; re-run the full verification gate; commit.
 - Reviewing it yourself is not a substitute for the Opus reviewer.
 
 ## 6. Next phase, repeat
