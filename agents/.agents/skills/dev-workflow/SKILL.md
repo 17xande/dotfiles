@@ -63,9 +63,10 @@ an Opus agent when the user has granted best judgement, see 1).
   than guessing the ID; if it is unavailable, stop and ask. One agent per phase (or per
   independent slice of one), not per file. Subagents run in background child sessions
   and report back when idle.
-- Use native subagents, not `codex exec` or another shell-launched agent: a shell process
-  is not an OpenCode child session. A Codex model running in OpenCode uses OpenCode's
-  tools and permissions, not the Codex CLI's sandbox; check the child's permissions
+- Use native subagents for all implementers and reviewers, whether they use Claude or
+  Codex. Do not launch `claude`, `codex exec`, or another agent through a shell: a shell
+  process is not an OpenCode child session. Models running in OpenCode use OpenCode's
+  tools and permissions, not a separate CLI's sandbox; check the child's permissions
   before assigning work.
 - **The brief is the agent's whole context.** Goal, plan section, files to read first,
   exact names and signatures, test/verification commands, what not to touch, "commit,
@@ -98,8 +99,10 @@ an Opus agent when the user has granted best judgement, see 1).
 
 ## 5. Review with an Opus agent
 
-- After each phase, a **separate** Opus subagent reviews read-only: the
-  diff against the plan and the stack skill's review checklist (go-htmx-web's
+- After each phase, launch a **separate** OpenCode `general` subagent through the
+  `subagent` tool, selecting an available Opus `providerID/modelID` from the model
+  catalog. It reviews read-only: the diff against the plan and the stack skill's review
+  checklist (go-htmx-web's
   `review-traps.md`, etc.). Give it the code and the plan, not your conclusions.
 - Findings must be verified (a failing test, a quoted line, a reproduced behaviour).
 - **Give the reviewer a severity rubric**, or every round finds a new "high". High or
