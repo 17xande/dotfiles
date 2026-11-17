@@ -10,3 +10,12 @@ stow -vt ~ claude agents
 mkdir -p ~/.codex ~/.config/opencode
 ln -sfn ~/.agents/AGENTS.md ~/.codex/AGENTS.md
 ln -sfn ~/.agents/AGENTS.md ~/.config/opencode/AGENTS.md
+
+# Personal OpenCode plugins are linked individually, not the whole config.
+plugin="$HOME/.config/opencode/plugins/restart-claude-agent"
+mkdir -p "$(dirname "$plugin")"
+if [[ -e "$plugin" && ! -L "$plugin" ]]; then
+  echo "Move $plugin aside before installing its dotfiles symlink." >&2
+  exit 1
+fi
+ln -sfn "$PWD/opencode-plugins/restart-claude-agent" "$plugin"

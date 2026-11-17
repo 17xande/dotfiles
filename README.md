@@ -1,6 +1,6 @@
 # My Dotfiles
 
-Two stow packages, plus a plugin marketplace. Preview with `stow -nvt ~ claude agents`;
+Two stow packages, plus personal plugins. Preview with `stow -nvt ~ claude agents`;
 drop the `-n` to apply.
 
 ## claude
@@ -37,3 +37,29 @@ A personal Claude Code plugin marketplace (`alex-local`), not a stow package. Ad
 `claude plugin marketplace add ~/dev/dotfiles/claude-plugins`, then
 `claude plugin install deno-lsp@alex-local`. `deno-lsp` is a language-server plugin; `deno lsp`
 is force-enabled (`initializationOptions.enable`) so it also covers Node projects.
+
+## opencode-plugins
+
+Personal OpenCode plugins, not a stow package. `./install.sh` links
+`opencode-plugins/restart-claude-agent` to
+`~/.config/opencode/plugins/restart-claude-agent`; existing directories must be moved
+aside first. OpenCode discovers the server and TUI parts from that directory.
+
+`restart-claude-agent` adds two token-free Ctrl+P actions:
+
+- **Restart Claude agent (this session)**: refuses busy sessions and stops only the
+  current session's Claude process.
+- **Restart Claude agents (ALL sessions on this server)**: asks for confirmation and
+  includes busy sessions and subagents.
+
+Replacement processes use Omarchy's active Claude account. Other running processes
+keep their account until replaced. Neither action restarts the OpenCode service.
+This plugin requires Linux `/proc`, Omarchy's account commands, and OpenCode 2.3.0's
+plugin API. It does not contain credentials or account state.
+
+Run the non-destructive tests with a recent Node.js supporting TypeScript stripping
+and `node:module.registerHooks` (verified with Node.js 26):
+
+```sh
+node --test opencode-plugins/restart-claude-agent/test/*.test.ts
+```
