@@ -85,6 +85,13 @@ dozen lines of your own over a thin wrapper around what the stdlib already does.
 deferred choice in the README's "Decisions still open" table so it is decided deliberately
 rather than by lapsing.
 
+**What does *not* need asking:** a module that appears only as `// indirect` because an
+already-approved dependency requires it (e.g. `golang.org/x/sys` under `golang.org/x/crypto`),
+and your own shared modules under `github.com/17xande-dev/` once their extraction has been
+agreed. The rule is about what the code *imports directly*; just mention the indirect
+addition in the commit message. A transitive module that is new to the consuming app *and*
+large (tens of modules, cgo) is still worth raising.
+
 ## Reviewing or returning: update every dependency
 
 When reviewing a codebase, or coming back to one after a while, **updating all
