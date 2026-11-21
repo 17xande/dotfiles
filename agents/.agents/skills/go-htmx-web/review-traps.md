@@ -266,6 +266,19 @@ explicit `"0"` or `"1"` and 400 on anything else.
 Real location names contain spaces (`Durban North`). Concatenating one into a
 `Location` header breaks it. `url.Values{...}.Encode()`.
 
+### ⚠️ A `?next=` that a browser reads as another host
+
+A login handler that checks `next` starts with `/` and not `//` (and refuses CR/LF)
+passed review and was an open redirect: `"/\t/evil.example"` is `//evil.example` to a
+browser, which strips TAB/LF/CR anywhere in a URL and reads `\` as `/`. Go's own HTTP
+client refuses to parse that `Location`, so a test through `http.Client` errors instead
+of showing the bug; assert on the raw header, or check it in a real browser
+(`new URL(loc, base).host`). Use `websec.SafeRedirect` (raw and decoded checks, browser
+dot segments including `%2e`, a trailing space, an optional `Prefix` and `Deny`). In
+review, check that **every** redirect target taken from a request (`next`, `return`,
+`back`, a Referer) goes through it or through an exact allow-list, and that the value
+the auth middleware generates (usually `r.URL.RequestURI()`) still round-trips.
+
 ---
 
 ## Exports of user-supplied text
@@ -281,7 +294,10 @@ moment an operator opens the export on a staff machine:
 ```
 
 Prefix such values with an apostrophe. Route **every** text cell through one helper
-so a column added later cannot slip past the escaping.
+so a column added later cannot slip past the escaping: `websec.CSVRow(cells...)`. A
+helper that checks only the first byte misses `" =cmd"` and a BOM before the `=`;
+`websec.CSVCell` strips leading spaces, controls and format characters before it looks
+(and drops them from the cell).
 
 Note `+` is the realistic trigger, not the malicious one: `+27…` phone numbers hit
 it constantly, which is also how you get a test that fails for a mundane reason.

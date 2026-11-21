@@ -244,8 +244,16 @@ Set this up early; retrofitting is worse.
   the work can fail, handing the operator a truncated file that looks like a good backup.
 - **⚠️ Escape user-supplied text in CSV exports.** Excel and Sheets evaluate a cell
   beginning `=`, `+`, `-` or `@`, so a public form submission becomes a live formula on a
-  staff machine. Route every text cell through one helper. `+27…` phone numbers are the
-  common trigger.
+  staff machine. Route every text cell through one helper — `websec.CSVRow` /
+  `websec.CSVCell` from `github.com/17xande-dev/websec`, which also catches a formula
+  hidden behind a leading space, control or BOM (a first-byte check misses `" =cmd"`).
+  `+27…` phone numbers are the common trigger. Not for files a machine imports: the
+  apostrophe becomes part of the value.
+- **A `?next=` after sign-in goes through `websec.SafeRedirect(next,
+  RedirectOptions{Prefix, Deny, Fallback})`**, never `strings.HasPrefix(next, "/")`: a
+  browser strips tabs and newlines and reads `\` as `/`, so `"/\t/evil.example"` passes
+  the naive check and lands on another host. `Deny` the sign-in page itself so nobody is
+  bounced back to it.
 - Never echo secrets in Makefile recipes (prefix with `@`).
 
 ## Testing and verification
