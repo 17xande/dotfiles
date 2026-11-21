@@ -57,6 +57,17 @@ an Opus agent when the user has granted best judgement, see 1).
 
 ## 3. Implement with agents
 
+- **Always use the latest model of the family asked for, never a remembered ID.** Before
+  launching any subagent, look the family up with the `models` tool (`query`, `all: true`,
+  `limit: 100`) and pick the newest by release date; models ship often and an ID that was
+  newest last month is stale. Sol: the highest-numbered plain `gpt-N.M-sol` (the `-fast`,
+  `-ultrafast` and `-flex` entries are speed or pricing tiers of a version, not newer
+  models; use them only if asked). Opus and Sonnet: the catalog may list only an
+  unversioned alias (`claude-agent/opus`) with no release date; use that alias, which
+  tracks the newest, and say in the report that the version could not be confirmed. If a
+  newer, versioned entry appears, prefer it. Name the exact model you used in the brief
+  log or plan.
+
 - **Default: Sonnet agents; when the user asks: Codex Sol agents.** Launch an OpenCode
   `general` subagent with the `subagent` tool, selecting the requested model using its
   available `providerID/modelID`. Look up the model in OpenCode's model catalog rather
