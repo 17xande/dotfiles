@@ -389,3 +389,30 @@ test("message order does not matter: newest by time wins", async () => {
     assert.deepEqual(proc.killed, [10])
   }
 })
+
+import { describeError } from "../lib/errors.ts"
+
+test("describeError handles Error, plain RPC error objects, data, and junk", () => {
+  assert.equal(describeError(new Error("boom")), "boom")
+  assert.equal(describeError({ type: "rpc.x", message: "m", data: { a: 1 } }), "rpc.x: m")
+  assert.equal(describeError({ message: "only" }), "only")
+  assert.equal(describeError({ type: "t" }), "t")
+  assert.equal(describeError({ a: 1 }), '{"a":1}')
+  assert.equal(describeError("s"), "s")
+  const cyc: any = {}
+  cyc.self = cyc
+  assert.equal(describeError(cyc), "unknown error")
+})
+
+test("runtime validation now owns the format rules removed from the schema", async () => {
+  const { proc, deps } = setup()
+  proc.add(10, claude(U1))
+  for (const sessionID of ["ses", "ses_", "ses_a b", "ses_../x", "xses_a", "ses_" + "a".repeat(100)]) {
+    assert.equal((await restartSession(deps, { sessionID })).reason, "invalid", sessionID)
+  }
+  const good = { pid: 10, startTime: "5000", digest: "a".repeat(64) }
+  for (const bad of [{ ...good, startTime: "12x" }, { ...good, digest: "A".repeat(64) }, { ...good, digest: "a".repeat(63) }, { ...good, pid: 0 }, { ...good, pid: 1.5 }]) {
+    assert.equal((await restartAll(deps, { processes: [bad], account: "/acct/b" })).reason, "invalid")
+  }
+  assert.deepEqual(proc.killed, [])
+})

@@ -25,7 +25,7 @@ const { methods } = await import("../lib/contract.ts")
 const { serviceDeps } = await import("../lib/runtime.ts")
 const { ActivityTracker, sharedTracker } = await import("../lib/activity.ts")
 
-// --- minimal JSON Schema validator (the subset the contract uses) ---
+// --- minimal JSON Schema validator: a cheap shape check only. The authoritative check is test/codec.test.ts (real codec). ---
 function validate(schema: any, value: any, path = "$"): string[] {
   const errs: string[] = []
   const t = schema.type
@@ -51,7 +51,7 @@ const SERVER_PID = process.pid
 
 test("schema validator catches bad shapes (sanity)", () => {
   assert.ok(validate(methods.restartAll.input, { processes: [{ pid: 1 }], account: "a" }).length > 0)
-  assert.ok(validate(methods.restartSession.input, { sessionID: "nope" }).length > 0)
+  assert.ok(validate(methods.restartSession.input, { sessionID: 5 }).length > 0) // format rules live in service.ts, not the schema
   assert.deepEqual(validate(methods.restartSession.input, { sessionID: "ses_a" }), [])
 })
 
@@ -139,23 +139,30 @@ test("runtime wiring: serviceDeps adapts ctx.session.get/context and the tracker
   await assert.rejects(bad.listMessages({ sessionID: "s" }))
 })
 
-function fakeTui(opts: { route: any; status?: string; rpc: any; confirm?: boolean; sessions?: any[] }) {
+function fakeTui(opts: { location?: any; route: any; status?: string; rpc: any; confirm?: boolean; sessions?: any[] }) {
+  const calls: { method: string; callOptions: any }[] = []
   const toasts: any[] = []
   const confirms: any[] = []
   let layer: any
   const context = {
-    client: { rpc: (def: any) => (assert.equal(def, RestartClaudeAgent), opts.rpc) },
+    location: opts.location,
+    client: {
+      rpc: (def: any) => (
+        assert.equal(def, RestartClaudeAgent),
+        Object.fromEntries(Object.keys(opts.rpc).map((m) => [m, async (input: any, callOptions: any) => (calls.push({ method: m, callOptions }), opts.rpc[m](input))]))
+      ),
+    },
     ui: {
       toast: { show: (t: any) => toasts.push(t) },
       dialog: { confirm: async (c: any) => (confirms.push(c), opts.confirm ?? true) },
       router: { current: () => opts.route },
     },
-    data: { session: { status: () => opts.status ?? "idle", list: () => opts.sessions ?? [] } },
+    data: { location: { default: () => ({ directory: "/default/dir" }) }, session: { status: () => opts.status ?? "idle", list: () => opts.sessions ?? [] } },
     keymap: { layer: (f: any) => (layer = f()) },
   }
   tui.setup(context as any)
   const cmd = (id: string) => layer.commands.find((c: any) => c.id === id)
-  return { toasts, confirms, layer, cmd }
+  return { toasts, confirms, layer, cmd, calls }
 }
 
 test("TUI: two palette commands, session one only enabled on a session route, no slash aliases", () => {
@@ -221,4 +228,32 @@ test("contract: Rpc definition is the shared methods object", () => {
   assert.equal(RestartClaudeAgent.id, "restart-claude-agent")
   assert.equal(RestartClaudeAgent.methods, methods)
   assert.ok(SERVER_PID > 0 && U1)
+})
+
+test("TUI: every RPC call forwards an explicit location (plugin location, else the data default)", async () => {
+  const rpc = {
+    preview: async () => ({ ok: true, message: "", account: "a", processes: [{ pid: 1, startTime: "1", digest: "a".repeat(64) }] }),
+    restartAll: async () => ({ ok: true, message: "x" }),
+    restartSession: async () => ({ ok: true, message: "x" }),
+  }
+  const withLoc = fakeTui({ location: { directory: "/proj" }, route: { type: "session", sessionID: "ses_a" }, rpc })
+  await withLoc.cmd("restart-claude-agent.session").run()
+  await withLoc.cmd("restart-claude-agent.all").run()
+  assert.deepEqual(withLoc.calls.map((c) => c.method), ["restartSession", "preview", "restartAll"])
+  for (const c of withLoc.calls) assert.deepEqual(c.callOptions, { location: { directory: "/proj" } })
+
+  const noLoc = fakeTui({ route: { type: "session", sessionID: "ses_a" }, rpc })
+  await noLoc.cmd("restart-claude-agent.session").run()
+  assert.deepEqual(noLoc.calls[0]!.callOptions, { location: { directory: "/default/dir" } })
+})
+
+test("TUI: plain-object RPC errors show their type and message, never [object Object]", async () => {
+  const t = fakeTui({
+    route: { type: "session", sessionID: "ses_a" },
+    rpc: { restartSession: async () => { throw { type: "rpc.invalid_input", message: "bad session" } } },
+  })
+  await t.cmd("restart-claude-agent.session").run()
+  assert.equal(t.toasts.at(-1).variant, "error")
+  assert.match(t.toasts.at(-1).message, /rpc\.invalid_input: bad session/)
+  assert.doesNotMatch(t.toasts.at(-1).message, /\[object Object\]/)
 })

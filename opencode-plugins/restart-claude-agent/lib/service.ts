@@ -98,7 +98,7 @@ export async function preview(deps: ServiceDeps): Promise<Result> {
 
 export async function restartSession(deps: ServiceDeps, input: { sessionID?: unknown }): Promise<Result> {
   const sessionID = input.sessionID
-  if (typeof sessionID !== "string" || !/^ses/.test(sessionID)) return fail("invalid", "Invalid session ID.")
+  if (typeof sessionID !== "string" || !/^ses_[A-Za-z0-9]{1,76}$/.test(sessionID)) return fail("invalid", "Invalid session ID.")
 
   // 1. Busy check, server side. Unknown => refuse.
   const active = await isBusy(deps, sessionID)

@@ -1,3 +1,9 @@
+// SCHEMA SUBSET: these schemas are decoded by OpenCode's RPC codec (effect
+// SchemaRepresentation), which REJECTS `pattern` outright (rpc.invalid_output /
+// HTTP 400) and ignores `format`. It strips (does not reject) extra properties
+// even with additionalProperties:false. So schemas use only type, properties,
+// required, items, enum, minimum, minLength/maxLength, and every format rule
+// (session ID, start time, digest) is enforced again at runtime in service.ts.
 // Plain JSON Schema + types for the RPC shared by the server and TUI parts.
 // rpc.ts wraps these with Rpc.define; keeping them here lets tests import them
 // without the OpenCode SDK.
@@ -42,7 +48,7 @@ export interface Result {
 const int = { type: "integer", minimum: 1 } as const
 const identity = {
   type: "object",
-  properties: { pid: int, startTime: { type: "string", pattern: "^[0-9]+$" }, digest: { type: "string", pattern: "^[0-9a-f]{64}$" } },
+  properties: { pid: int, startTime: { type: "string", minLength: 1, maxLength: 32 }, digest: { type: "string", minLength: 64, maxLength: 64 } },
   required: ["pid", "startTime", "digest"],
   additionalProperties: false,
 } as const
@@ -79,7 +85,7 @@ export const methods = {
   restartSession: {
     input: {
       type: "object",
-      properties: { sessionID: { type: "string", pattern: "^ses" } },
+      properties: { sessionID: { type: "string", minLength: 5, maxLength: 80 } },
       required: ["sessionID"],
       additionalProperties: false,
     },

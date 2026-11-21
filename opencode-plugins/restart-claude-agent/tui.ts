@@ -1,13 +1,25 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { RestartClaudeAgent } from "./rpc.ts"
 import type { Result } from "./lib/contract.ts"
+import { describeError } from "./lib/errors.ts"
 
 // TUI part: two Ctrl+P commands. Both only call the server RPC, so neither
 // makes a model call and both work with the Claude allowance exhausted.
 export default Plugin.define({
   id: "restart-claude-agent.tui",
   setup(context) {
-    const rpc = () => context.client.rpc(RestartClaudeAgent)
+    const client = () => context.client.rpc(RestartClaudeAgent)
+    // Every call names the location whose loaded plugin should handle it; without
+    // it the server picks its default location (the home directory).
+    const options = () => ({ location: context.location ?? context.data.location.default() })
+    const rpc = () => {
+      const c = client()
+      return {
+        preview: (input: Record<string, never>) => c.preview(input, options()),
+        restartSession: (input: { sessionID: string }) => c.restartSession(input, options()),
+        restartAll: (input: Parameters<typeof c.restartAll>[0]) => c.restartAll(input, options()),
+      }
+    }
 
     const call = async (run: () => Promise<Result>): Promise<Result | undefined> => {
       try {
@@ -15,7 +27,7 @@ export default Plugin.define({
       } catch (error) {
         context.ui.toast.show({
           title: "Restart Claude agent",
-          message: `Server call failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Server call failed: ${describeError(error)}`,
           variant: "error",
           duration: 8000,
         })
