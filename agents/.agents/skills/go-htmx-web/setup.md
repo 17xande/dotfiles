@@ -60,10 +60,31 @@ Libraries that have earned their place in this style:
 | `pressly/goose/v3` | Migrations: advisory locking, `NO TRANSACTION`, and a CLI for hand-holding |
 | `justinas/nosurf` | CSRF tokens and origin checks |
 | `gorilla/securecookie` | Signing session cookies, incl. key rotation |
-| `golang.org/x/crypto` | `argon2` for passwords (`bcrypt` to keep old hashes verifying) |
-| `golang.org/x/time/rate` | Token bucket behind rate limits |
-| `wneessen/go-mail` | MIME, RFC 2047 subjects, quoted-printable, STARTTLS |
+| `golang.org/x/crypto` | `argon2` for passwords (`bcrypt` to keep old hashes verifying); arrives through the `password` module |
+| `golang.org/x/time/rate` | Token bucket behind rate limits; arrives through the `ratelimit` module |
+| `wneessen/go-mail` | MIME, RFC 2047 subjects, quoted-printable, STARTTLS; arrives through the `mailer` module |
 | `aws/aws-sdk-go-v2` (`service/s3`, `feature/s3/manager`, `credentials`) | Object storage over the S3 API (R2, GCS interop, RustFS). Replaced `minio-go`: MinIO's community edition is in maintenance mode |
+
+### Your own shared modules: use these instead of writing the code
+
+Each was extracted from code that every app had copied, after the copies drifted into
+real bugs (an uncapped argon2 pool that could OOM a container, IPv6 limiter bypasses, a
+PayFast notification check that refused PayFast's own servers). New projects import
+them from the start; agreed extraction means they need no per-project dependency
+question (see `SKILL.md`). Take **the latest tag** — they are your own and are reviewed
+before tagging, so the two-week rule below is for third-party code. Policy stays in the
+app; the module holds only the mechanism.
+
+| Module | For | The app keeps |
+|---|---|---|
+| `github.com/17xande-dev/password` | argon2id `Hash` / `Check` (`rehash` flag, bcrypt still verifies), `CheckDummy` for unknown accounts, `Validate` at write time, `SetConcurrency` (call it at startup), `SetParamsForTesting` (in `TestMain`: the params are global, so not per test with `t.Parallel`) | the password policy and its messages; the `hashpw` command; the compare-and-swap that saves a rehash |
+| `github.com/17xande-dev/ratelimit` | keyed token buckets: IPv6 by /64, a hard cap that fails closed, `Middleware` with `RetryAfter` or a custom `Exceeded` 429, `Allow(key)` for second-tier keys, an `OnFull` hook, an injectable clock | rates, bursts, the 429 body, email/username normalisation and length caps |
+| `github.com/17xande-dev/ratelimit/clientip` | `Source` from `TrustedProxies` CIDRs **or** one `TrustedHeader` (`New`, or `ParseSource` for a `remote`/`forwarded`/`cloudflare` env value); bare, unmapped, zone-free addresses | which policy matches the real ingress (document it next to the deploy config) |
+| `github.com/17xande-dev/mailer` (+ `/msauth`) | one `Sender` interface: SMTP (go-mail), Microsoft Graph, `Discard`, `Fake` for tests; XOAUTH2 tokens for Exchange Online | the templates and what gets sent when |
+| `github.com/17xande-dev/payment` (+ `/payfast`, `/snapscan`) | gateways, `Registry`, the signed handover form, ITN/webhook verification, `CSPOrigins` for `form-action`/`img-src`, a `Fake` gateway, `?ref=` return URLs | orders/gifts, amount checks against the stored record, the read cap on callback bodies |
+
+Source lives in `~/dev/libraries/<name>`; during development point an app at a local
+checkout with an **uncommitted** `go.work`, and commit only against a real tag.
 
 Deliberately **not** taken: a router, a validation library (struct tags fight the
 per-field messages real forms need), a decimal type, a UUID library (the database

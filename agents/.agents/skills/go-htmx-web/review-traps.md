@@ -213,6 +213,11 @@ sweep) and, if still full, 429: fail closed, existing clients unaffected. Do not
 create the second-tier (email) bucket when the IP tier already refused, and bound
 that key's length, or a refused flood still fills the second map.
 
+The `ratelimit` module does all of this. In review, the trap moves to how it is used:
+hand-rolled limiter code in an app (replace it), a limiter keyed on something other
+than the `clientip.Source` result, `FailOpenWhenFull` without a stated reason, or
+`Allow(email)` called before the IP tier passed.
+
 ### ⚠️ Client address from headers
 
 `X-Forwarded-For`/`CF-Connecting-IP` can carry `ip:port` or `[v6]:port`; keyed raw,
@@ -222,11 +227,20 @@ each source port is a new client. Parse to the bare address, and set
 `CF-Connecting-IP` is only trustworthy when Cloudflare is the sole way in (a
 tunnel); behind any other proxy that passes it through, the client sets it.
 
+`ratelimit/clientip` parses and normalises; what it cannot know is the ingress. Check
+the `Source` against the real chain (deploy config, proxy settings): `TrustedProxies`
+needs a proxy that *appends* its peer to `X-Forwarded-For` (Kamal's proxy needs
+`forward_headers: true` for that), and a `TrustedHeader` is only safe when nothing can
+reach the app around the component that sets it. A wrong `Source` either lets every
+visitor spoof their key or puts every visitor in one bucket.
+
 ### Unbounded password-hash concurrency
 
 argon2id at ~64 MiB each: fifty parallel logins exceed a 1 GiB container limit
 before any rate limit matters (it is per IP). Cap concurrent hashes with a
-semaphore sized from the memory limit.
+semaphore sized from the memory limit: with the `password` module that is
+`password.SetConcurrency(n)` at startup. The module default is `max(2, min(NumCPU, 4))`;
+a small container (512 MiB) wants 2. A missing call is the review finding.
 
 ### An expired row behind a cookie must not 500
 
@@ -407,8 +421,9 @@ above hit, every submission was still in the database with `email_sent = 0`.
   earlier check, still answering on the same port, produced a confident false
   reading twice. The giveaway is a response that does not match what the code
   should do. `pgrep -af <binary>` first.
-- **Use cheap argon2 parameters in tests** (`sync.OnceValue` the hash) — real ones
-  cost ~100ms and 64 MiB per verification.
+- **Use cheap argon2 parameters in tests** — real ones cost ~100ms and 64 MiB per
+  verification. With the `password` module: `password.SetParamsForTesting(...)` once in
+  `TestMain` (the params are global, so never per test alongside `t.Parallel`).
 - **Assert a minimum count in any "every X must Y" test**, or it passes vacuously
   the day the fixture stops loading.
 - **⚠️ Tests that skip silently without Postgres (or S3).** A green `go test ./...`

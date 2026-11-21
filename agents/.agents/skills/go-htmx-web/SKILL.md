@@ -185,17 +185,28 @@ Set this up early; retrofitting is worse.
   (`https://host/bucket`) in `img-src` therefore refuses *every* object beneath it. This
   is invisible to `curl` and to the rendered markup — only a real browser enforces it.
   Strip to scheme+host for CSP purposes (a `PublicOrigin()` helper) and regression-test it.
-- **argon2id** password hashing in PHC string format, dispatching on prefix so bcrypt
-  hashes keep verifying. **Cap concurrent hashes** with a semaphore sized against the
-  container memory limit: each costs ~64 MiB, so a burst of logins is an OOM kill.
-- **Per-IP rate limits**: `x/time/rate` token bucket in a keyed map with a lazy eviction
-  sweep. **Key IPv6 by its /64** (unmap v4-mapped, strip the zone), or one prefix gets a
-  fresh bucket per address. **Hard-cap the map**: at the cap, run a (rate-limited) sweep,
-  and if it is still full refuse with 429 — fail closed. Create a second-tier key
-  (email/username) only after the IP check passed, and bound its length.
-- **Client IP from headers**: strip `ip:port` / `[v6]:port` to the bare address before
-  keying; `CF-Connecting-IP` is trustworthy only when Cloudflare is the *only* way in (a
-  tunnel) — behind any other proxy that passes it through, it is client-chosen. Set
+- **Use the shared modules, don't re-implement them** (table in `setup.md`): password
+  hashing, rate limits and client IP, mail and payment gateways each live in a
+  `github.com/17xande-dev/` module that was extracted because the per-app copies had
+  drifted into real bugs. If a module lacks something, change the module and tag it;
+  never fork its code into an app.
+- **argon2id** password hashing via `github.com/17xande-dev/password`: `Hash` / `Check`
+  (PHC strings; bcrypt still verifies; `rehash` says when to upgrade with a
+  compare-and-swap on login), `Validate` at write time. **Cap concurrent hashes**:
+  `password.SetConcurrency(n)` at startup, sized against the container memory limit —
+  each hash costs ~64 MiB, so a burst of logins is an OOM kill. Password *policy* stays
+  in the app.
+- **Per-IP rate limits** via `github.com/17xande-dev/ratelimit`: `ratelimit.New(Config{Rate,
+  Burst})` then `Middleware(source, HTTPOptions{RetryAfter})`. It already keys IPv6 by
+  its /64, hard-caps the map and fails closed when full (`FailOpenWhenFull` only by
+  deliberate choice). Use `Allow(key)` for a second-tier key (email/username) only after
+  the IP check passed; normalising or hashing that key stays the app's job. Rates,
+  bursts and the 429 body are per-app decisions.
+- **Client IP** via `ratelimit/clientip`: a `Source` with **either** `TrustedProxies`
+  (CIDRs whose hops append to `X-Forwarded-For`) **or** one `TrustedHeader`, never both;
+  the zero `Source` is the socket peer. `CF-Connecting-IP` as the trusted header is
+  correct only when Cloudflare is the *only* way in (a tunnel) — behind any other proxy
+  that passes it through, it is client-chosen. Set
   `http.Server{ReadHeaderTimeout, MaxHeaderBytes: 64 << 10}`.
 - **CSRF** via nosurf, incl. origin checks. Cookies `SameSite=Lax`; scope the cart/session
   cookie to its path so catalog pages stay cacheable and embeddable.
@@ -214,8 +225,8 @@ Set this up early; retrofitting is worse.
   (~64 MiB each). The login limiter's tight tier must not be keyed on a cookie — an
   attacker discards that for free — so key it on something undroppable with a looser
   per-IP ceiling behind it.
-- **Make a failed login cost the same as a missing account**: verify against a dummy hash
-  when the email is unknown, check `disabled` *after* the password, one message for every
+- **Make a failed login cost the same as a missing account**: `password.CheckDummy` when
+  the email is unknown, check `disabled` *after* the password, one message for every
   cause.
 - **Sessions: prefer a database table over a signed cookie** whenever you need named
   accounts, per-user disable, or "changing a password ends existing sessions" — each of
