@@ -30,42 +30,67 @@ Pick **Postgres** when one of these is true — none of them is about row counts
 Otherwise **SQLite**, and say so in the README with the trigger that would change it
 (the "Decisions still open" table in `setup.md`).
 
-**The cgo cost.** `mattn/go-sqlite3` needs cgo, which forfeits the static-binary
-property `pgx` gives you — the distroless image still works, but `CGO_ENABLED=0`
-does not. `modernc.org/sqlite` is pure Go and keeps the static build, at the cost
-of a much larger, machine-translated dependency. Decide it explicitly; do not let
-it lapse.
+## The standard (decided): modernc + sqlitekit + goose
+
+Every SQLite app uses the same setup, decided after the per-app copies drifted
+(a missing `_txlock`, WAL in half the apps, backups in three of eight, a goose shim
+missing a method). Do not re-decide it per project.
+
+- **Driver: `modernc.org/sqlite`** (pure Go): `CGO_ENABLED=0`, a static binary, no
+  C toolchain in the Dockerfile. `mattn/go-sqlite3` was the alternative (the C
+  original, faster) and was rejected for the cgo cost; the speed difference does not
+  matter at these sizes. The file format is the same, so switching a project needs
+  no data migration — only the DSN, the import, the Dockerfile and any code that
+  inspects driver error types.
+- **`github.com/17xande-dev/sqlitekit`** holds the settings, the startup check and
+  the backups; **`sqlitekit/goosestrict`** holds goose on STRICT tables.
 
 ## Connection setup
 
 ```go
-// _foreign_keys=on because SQLite enforces no foreign key at all by default --
-// the constraint is in the schema and silently does nothing without it.
-dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_txlock=immediate", path)
-db, err := sql.Open("sqlite3", dsn)
+import (
+	"github.com/17xande-dev/sqlitekit"
+	_ "modernc.org/sqlite"
+)
+
+opts := sqlitekit.Options{} // SecureDelete: true when deleted data must not linger in free pages
+dsn, err := sqlitekit.DSN(path, opts)
+db, err := sql.Open("sqlite", dsn)
+// Both drivers silently ignore a misspelled parameter: verify what actually took.
+if err := sqlitekit.Check(ctx, db, opts); err != nil { ... }
 ```
 
-- **`_foreign_keys=on` is not optional.** Foreign keys are off by default. Every
-  `REFERENCES` in the schema is decoration until you set it, so the delete you
-  thought was refused silently orphans rows.
-- **`_txlock=immediate` whenever any transaction reads then writes.** A deferred
-  transaction takes the write lock only at its first write; if another connection
-  holds it, the upgrade fails at once with "database is locked" — `busy_timeout`
-  does not apply to that upgrade. Immediate takes the lock at `BEGIN`, where the
-  timeout does wait.
-- **`busy_timeout` already defaults to 5000ms** in `mattn/go-sqlite3` — check the
-  driver you use rather than assuming, and do not add a redundant DSN parameter.
-  Without a busy timeout a contended lock is an immediate `SQLITE_BUSY` error
-  instead of a wait, which matters enormously when the failing write is the one
-  that persists a visitor's submission.
-- **WAL is optional and has a documentation cost.** `_journal_mode=WAL` lets
-  readers run concurrently with the writer instead of blocking. Worth it under
-  real concurrency; at a handful of requests/sec it changes nothing. Three
-  caveats if you take it: it needs the *directory* writable (it creates `-wal` and
-  `-shm` sidecars), it is unsafe on network filesystems, and it changes the
-  correct backup command — a naive `cp` of a WAL database can capture a torn
-  state, so backups become `VACUUM INTO` or the backup API. Raise it as a
-  decision, do not enable it silently.
+What `DSN` sets, on every pooled connection, and why:
+
+- **Foreign keys on.** Off by default; every `REFERENCES` in the schema is
+  decoration until set, so the delete you thought was refused silently orphans rows.
+- **`_txlock=immediate`.** A deferred transaction takes the write lock only at its
+  first write; if another connection holds it, the upgrade fails at once with
+  "database is locked" — `busy_timeout` does not apply to that upgrade. Immediate
+  takes the lock at `BEGIN`, where the timeout does wait.
+- **`busy_timeout` 5000 ms**, set explicitly: modernc has no default, so without it
+  a contended lock is an immediate `SQLITE_BUSY` — fatal when the failing write is
+  the one that persists a visitor's submission.
+- **WAL.** Readers run alongside the writer instead of waiting. It needs the
+  *directory* writable (it creates `-wal` and `-shm` beside the file), it is unsafe
+  on network filesystems, and it changes what a backup is: **a `cp`, `docker cp` or
+  volume tar of a running WAL database can capture a torn state**. Backups are
+  `VACUUM INTO` (sqlitekit `Backups`) or `sqlite3 .backup`, and every README recipe
+  says so.
+- `synchronous` stays at SQLite's default (FULL): a committed write survives a power
+  cut.
+
+## Backups
+
+```go
+b := sqlitekit.Backups{Dir: "/data/backups", Prefix: "app-", Layout: "2006-01-02", Keep: 14}
+path, made, err := b.Run(ctx, db, time.Now()) // at startup and daily, from one cleanup loop
+```
+
+A `VACUUM INTO` copy (consistent while the app writes), 0600 in a 0700 folder the app
+owns, one per day, the newest `Keep` retained, nothing else in the folder touched.
+Backups in the data volume cover mistakes and corruption, not losing the disk; an
+off-site copy is a separate, per-project decision — record it as open if not made.
 
 ## STRICT tables: on, always
 
@@ -182,19 +207,30 @@ different primary keys and one location to the user, so an exact-match guard let
 all three through and the listing shows three copies of one row. Trim identity
 fields and add a `FindByLocationSlug`-style lookup that collates the same way.
 
-## Migrations: don't, while it is greenfield
+## Migrations: goose on STRICT tables, from the first commit
 
-With no deployment and reproducible seed data, a schema change is
-`rm database && seed`. Provide `make recreate-db` and use it.
+Numbered `.sql` files (`-- +goose Up`), embedded, applied at startup through
+`goosestrict`:
+
+```go
+p, err := goosestrict.NewProvider(db, migrationsFS) // refuses an unversioned database with tables, and one newer than the binary
+_, err = p.Up(ctx)
+```
+
+goose's stock SQLite version table uses a `TIMESTAMP` column that STRICT rejects;
+`goosestrict.NewStore` is the STRICT version. Use it from the start: retrofitting a
+migration tool onto a live database means an adoption step (`goosestrict.Adopt`),
+and ⚠️ adopting at version N tells goose migrations 1..N are applied — if the real
+schema is behind, goose silently skips them. Verify the schema, back up and rehearse
+on a copy before adopting.
 
 - **No ad-hoc `ALTER`s on startup.** A `PRAGMA table_info` + `ALTER TABLE ADD
   COLUMN` helper looks harmless and is worse than nothing once tables are
   `STRICT`: the column arrives, the old non-strict table definition stays, and the
   database silently diverges from the schema file. Say so in a comment next to
   `Open` so it is not re-added by reflex.
-- Adopt a real versioned tool (goose) **when there is production data worth
-  preserving** — and note that goose's advisory-lock story assumes Postgres, so a
-  scaled-out SQLite deployment was never on the table anyway.
+- Before the first deployment, a schema change can still be an edit to
+  `0001_init.sql` plus `make recreate-db`; after it, only new numbered files.
 - Keep config reproducible from JSON so drop-and-recreate stays cheap: a
   `SeedFromFile(path, force)` that is insert-only unless forced, plus an
   `ExportJSON` that writes the database's current state back out in the shape the
