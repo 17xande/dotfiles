@@ -210,12 +210,29 @@ fields and add a `FindByLocationSlug`-style lookup that collates the same way.
 ## Migrations: goose on STRICT tables, from the first commit
 
 Numbered `.sql` files (`-- +goose Up`), embedded, applied at startup through
-`goosestrict`:
+`goosestrict`, **inside `sqlitekit.MigrationLock`**:
 
 ```go
+release, err := sqlitekit.MigrationLock(ctx, absPath) // BEFORE the first query, including Check
+if err != nil { ... }
+defer release()
+db, err := sql.Open("sqlite", dsn) // sql.Open does not connect
+// Check, any adoption, then:
 p, err := goosestrict.NewProvider(db, migrationsFS) // refuses an unversioned database with tables, and one newer than the binary
 _, err = p.Up(ctx)
 ```
+
+**⚠️ goose has no cross-process lock.** It computes the pending list before taking
+the write lock and does not re-read the version inside the transaction, so two
+processes opening the same database at once (the server and a `seed` or `export`
+command, two containers in a deploy overlap) both apply the same migration —
+"duplicate column name" at best. Hold `MigrationLock` (an `flock` on
+`<db>.migrate-lock`, released on process death) from before the first query — the
+very first open of a fresh database is not covered by `busy_timeout` — through
+`Check`, any adoption and `Up`, and release it on every return path. Pass the same
+absolute path every process opens, and run every process as the same user (the lock
+file belongs to whoever creates it). Test it with N concurrent opens of a fresh
+database, and show the test fails without the lock.
 
 goose's stock SQLite version table uses a `TIMESTAMP` column that STRICT rejects;
 `goosestrict.NewStore` is the STRICT version. Use it from the start: retrofitting a
