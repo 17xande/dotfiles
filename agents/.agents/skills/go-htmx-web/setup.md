@@ -58,8 +58,8 @@ Libraries that have earned their place in this style:
 | `jackc/pgx/v5` | Postgres driver + pool |
 | `modernc.org/sqlite` | SQLite driver, pure Go (decided; see `sqlite.md`). `mattn/go-sqlite3` was rejected for its cgo cost. |
 | `pressly/goose/v3` | Migrations: advisory locking, `NO TRANSACTION`, and a CLI for hand-holding |
-| `justinas/nosurf` | CSRF tokens and origin checks |
-| `gorilla/securecookie` | Signing session cookies, incl. key rotation |
+| `justinas/nosurf` | CSRF tokens and origin checks; arrives through `websec/csrf` |
+| `gorilla/securecookie` | Signed claims with key rotation, only when server-side revocation is not needed |
 | `golang.org/x/crypto` | `argon2` for passwords (`bcrypt` to keep old hashes verifying); arrives through the `password` module |
 | `golang.org/x/time/rate` | Token bucket behind rate limits; arrives through the `ratelimit` module |
 | `wneessen/go-mail` | MIME, RFC 2047 subjects, quoted-printable, STARTTLS; arrives through the `mailer` module |
@@ -69,7 +69,7 @@ Libraries that have earned their place in this style:
 
 Each was extracted from code that every app had copied, after the copies drifted into
 real bugs (an uncapped argon2 pool that could OOM a container, IPv6 limiter bypasses, a
-PayFast notification check that refused PayFast's own servers). New projects import
+payment notification check that refused the gateway's own servers). New projects import
 them from the start; agreed extraction means they need no per-project dependency
 question (see `SKILL.md`). Take **the latest tag** — they are your own and are reviewed
 before tagging, so the two-week rule below is for third-party code. Policy stays in the
@@ -78,15 +78,20 @@ app; the module holds only the mechanism.
 | Module | For | The app keeps |
 |---|---|---|
 | `github.com/17xande-dev/password` | argon2id `Hash` / `Check` (`rehash` flag, bcrypt still verifies), `CheckDummy` for unknown accounts, `Validate` at write time, `SetConcurrency` (call it at startup), `SetParamsForTesting` (in `TestMain`: the params are global, so not per test with `t.Parallel`) | the password policy and its messages; the `hashpw` command; the compare-and-swap that saves a rehash |
-| `github.com/17xande-dev/ratelimit` | keyed token buckets: IPv6 by /64, a hard cap that fails closed, `Middleware` with `RetryAfter` or a custom `Exceeded` 429, `Allow(key)` for second-tier keys, an `OnFull` hook, an injectable clock | rates, bursts, the 429 body, email/username normalisation and length caps |
+| `github.com/17xande-dev/ratelimit` | keyed token buckets: IPv6 by /64, a hard cap that fails closed, `Middleware` with `RetryAfter` or a custom `Exceeded` 429, `Allow(key)` for second-tier keys, an `OnFull` hook, an injectable clock; `AccountKey` trims and lower-cases, then hashes results over 200 bytes | rates, bursts, the 429 body, identifier validation and checking the IP tier first |
 | `github.com/17xande-dev/ratelimit/clientip` | `Source` from `TrustedProxies` CIDRs **or** one `TrustedHeader` (`New`, or `ParseSource` for a `remote`/`forwarded`/`cloudflare` env value); bare, unmapped, zone-free addresses | which policy matches the real ingress (document it next to the deploy config) |
 | `github.com/17xande-dev/mailer` (+ `/msauth`) | one `Sender` interface: SMTP (go-mail), Microsoft Graph, `Discard`, `Fake` for tests; XOAUTH2 tokens for Exchange Online | the templates and what gets sent when |
 | `github.com/17xande-dev/sqlitekit` (+ `/goosestrict`) | SQLite on `modernc.org/sqlite`: `DSN` + `Check` (foreign keys, WAL, `_txlock=immediate`, busy timeout, optional secure_delete, verified at startup), `Backups` (daily `VACUUM INTO`, 0600, retention), `MigrationLock` (cross-process, hold it around every migration), goose on STRICT tables with `NewProvider` and `Adopt` | the migrations, the backup folder/prefix/retention, whether it needs `SecureDelete`, and running `Backups.Run` from its cleanup loop |
-| `github.com/17xande-dev/websec` | `SafeRedirect(next, RedirectOptions{Prefix, Deny, Fallback})` for `?next=` and other request-supplied redirect targets; `CSVCell` / `CSVRow` for spreadsheet-bound exports | the fallback page, which paths to `Deny`, and any extra length cap; which exports are for spreadsheets (not machine imports) |
+| `github.com/17xande-dev/websec` | **Root:** `SafeRedirect` for `?next=` and other request-supplied redirects; `CSVCell` / `CSVRow` for spreadsheet-bound exports.<br>**`cookie`:** the session cookie builder: Lax and HttpOnly fixed, `__Host-` (at `/`) or `__Secure-` (narrower path) derived from a bare name, `Insecure` for plain-HTTP dev only.<br>**`csrf`:** the nosurf policy: a mandatory body cap applied before the token is parsed, multipart refused unless a route's `Limit` opts in, a required exact `Origin` (`ValidateOrigin` checks it early), `Renew`, logged failures, `OnBodyError` and `LogPath`.<br>**`session`:** `Lifetime`: idle plus a mandatory absolute limit, `NeedsTouch` to throttle the `last_seen` write (a future value is rewritten), `ExpiresAt` / `AbsoluteExpiry` for the cookie.<br>**`session/sessiontest`:** the conformance suite every app runs against its own store. | **Root:** the fallback page, which paths to `Deny`, and which exports are for spreadsheets (not machine imports).<br>**`cookie`:** the bare name, the path, and persistent vs `BrowserSession`.<br>**`csrf`:** the origins, per-route caps, authenticating large uploads before the wrapper, the `Renew` calls (sign-in, sign-out, password change), the log label.<br>**`session`:** the store and its schema, token hashing, the lifetimes, the clock, revocation and the sweep.<br>**`session/sessiontest`:** a small adapter from the suite's callbacks to the real store. |
 | `github.com/17xande-dev/payment` (+ `/payfast`, `/snapscan`) | gateways, `Registry`, the signed handover form, ITN/webhook verification, `CSPOrigins` for `form-action`/`img-src`, a `Fake` gateway, `?ref=` return URLs | orders/gifts, amount checks against the stored record, the read cap on callback bodies |
 
-Source lives in `~/dev/libraries/<name>`; during development point an app at a local
-checkout with an **uncommitted** `go.work`, and commit only against a real tag.
+**This table is the index; each module's README is the manual**, and the one that
+matters is at the version the app pins. From the app's directory:
+`$(GOWORK=off go list -m -f '{{.Dir}}' github.com/17xande-dev/<name>)/README.md`
+(`go mod download` it first if the path is empty), or `go doc github.com/17xande-dev/<pkg>`.
+`GOWORK=off` matters: under a `go.work` you would read the local checkout instead.
+During development point an app at a local checkout with an **uncommitted** `go.work`,
+and commit only against a real tag.
 
 Deliberately **not** taken: a router, a validation library (struct tags fight the
 per-field messages real forms need), a decimal type, a UUID library (the database
