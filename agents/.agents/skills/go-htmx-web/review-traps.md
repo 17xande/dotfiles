@@ -163,7 +163,7 @@ today is not a reason for the two queries to disagree.
 ### Validating an identifier is not normalising it
 
 `mail.ParseAddress` accepts RFC 5322's display-name form, so
-`Alex <alex@example.com>` validates. Stored raw, it becomes a **second account for
+`Sample User <user@app.example>` validates. Stored raw, it becomes a **second account for
 one mailbox**: it does not collide with the plain address under a
 `UNIQUE COLLATE NOCASE` index, so the uniqueness guard never fires — and it can
 never sign in, because the login form's `type=email` input will not accept the
@@ -210,13 +210,14 @@ bucket — every throttle bypassed — and the map grew without bound between sw
 Key IPv6 by /64 (after unmapping `::ffff:a.b.c.d`, stripping any zone); cap the
 map; at the cap run a sweep (itself rate-limited, or the flood makes every request
 sweep) and, if still full, 429: fail closed, existing clients unaffected. Do not
-create the second-tier (email) bucket when the IP tier already refused, and bound
-that key's length, or a refused flood still fills the second map.
+create the second-tier (email) bucket when the IP tier already refused, or a refused
+flood still fills the second map. Use `AccountKey` for a normalised, bounded key;
+it does not validate the identifier.
 
 The `ratelimit` module does all of this. In review, the trap moves to how it is used:
 hand-rolled limiter code in an app (replace it), a limiter keyed on something other
 than the `clientip.Source` result, `FailOpenWhenFull` without a stated reason, or
-`Allow(email)` called before the IP tier passed.
+an account-tier `Allow` called before the IP tier passed.
 
 ### ⚠️ Client address from headers
 
@@ -263,7 +264,7 @@ explicit `"0"` or `"1"` and 400 on anything else.
 
 ### Escape a redirect built from data
 
-Real location names contain spaces (`Durban North`). Concatenating one into a
+Location names can contain spaces (`North Hall`). Concatenating one into a
 `Location` header breaks it. `url.Values{...}.Encode()`.
 
 ### ⚠️ A `?next=` that a browser reads as another host
@@ -354,18 +355,17 @@ Two template sets, one namespace of names, silent collision.
 without server state. That is the wrong shape as soon as you need named accounts,
 per-user disable, or "changing a password ends existing sessions" — each of those
 requires a lookup on every request anyway, so the table is not the cost, it is the
-mechanism. An opaque random token (`crypto/rand`) stored as its `sha256` is then
-the whole design: nothing to forge, no MAC, no key rotation runbook.
+mechanism. Store the `sha256` of an opaque random token (`crypto/rand`), not the
+token itself: nothing to forge, no MAC, no key rotation runbook.
 
 Use securecookie when the cookie genuinely must carry claims and there is no
 revocation requirement. Otherwise the table.
 
 ### The admin session cookie ignores the public `SameSite` setting
 
-A `COOKIE_SAMESITE` variable exists so a *public* embedded form can be genuinely
-cross-site. An admin credential must never follow it to `SameSite=None`, which
-would let any site make the browser send it. Hard-code `Lax` for the admin cookie
-and comment why.
+An embedded public form may need a cross-site cookie. An admin credential must
+never follow it to `SameSite=None`, which would let any site make the browser
+send it. `websec/cookie` fixes the session cookie at Lax and HttpOnly.
 
 ### Make a failed login cost the same as a missing account
 
@@ -384,6 +384,76 @@ passphrase, which is what you would rather they chose.
 forms but not in the CLI that creates the *first* and most privileged account. A
 doc claim added in the same commit as the code it describes still needs checking
 against every path.
+
+---
+
+## Kit adoption traps
+
+Found while moving several apps onto `websec` and `ratelimit`. The module READMEs
+carry the API; these are the mistakes the adoption itself produced.
+
+- **⚠️ Cap the body before the token parse.** nosurf parses the form to find the
+  token *before* any auth runs, so an anonymous request can make the server read a
+  large body, and spool a multipart one to disk. The cap must sit in front and cover
+  declared lengths and streamed reads alike; `websec/csrf` does both, but only if no
+  parser runs ahead of it. A `MaxBytesReader` in a handler comes after the parse.
+  Go's `FormValue` parses multipart even on a GET, hence the kit's 415.
+- **The `Origin` is mandatory and exact:** lower-case `scheme://host[:port]`, no path,
+  no trailing slash, no default port. A value an old hand-written check silently never
+  matched now fails startup, so check it with `csrf.ValidateOrigin` in the config check
+  (`-check-config` or its equivalent) **before any migration runs**: a deploy must not
+  migrate the database and then refuse to start.
+- **Build the CSRF policy before the handlers** and pass it to their constructors. A
+  setter called later is silently skipped when forgotten, and then sign-in never
+  renews the token.
+- **`Renew` at sign-in, sign-out and password change, and test the old token.** A test
+  that only sees the cookie change passes when the old token still works; post the
+  pre-change token after the change and expect 403.
+- **A cookie prefix is a rename.** Adopting `__Host-`/`__Secure-` signs everyone out
+  once and makes forms open at deploy time expire once: put both in the deploy note.
+  Test that a bare-named legacy session cookie is ignored, not honoured.
+- **Never log a path that carries a one-time token.** Log the matched mux pattern
+  (`LogPath` for the CSRF refusals, the same for request logs) and a constant for
+  unmatched routes. A prefix redactor misses `//auth/<token>`, which the mux answers
+  with a redirect after the log line is written.
+- **`Sec-Fetch-Site: same-origin` passes nosurf's origin step without comparing
+  `Origin`.** Browsers set it, page scripts cannot, and the token is still required, so
+  it is sound; an app that wants `Origin` matched regardless keeps its own check in
+  front of the wrapper.
+- **A session needs an idle *and* an absolute limit.** Sliding expiry alone lets a busy
+  tab live forever. Throttle the `last_seen` write (`NeedsTouch`) and rewrite a future
+  value: after the clock steps back, a throttle that only compares "older than a
+  minute" never touches it again, and idle expiry is off until the clock catches up.
+  Judge expiry with the clock that wrote the timestamp: never compare a database
+  `now()` with a Go `time.Now()`, or clock skew moves every deadline. The sweep must
+  delete idle-expired rows as well as absolute ones.
+- **A directory-backed session snapshots groups at sign-in.** Someone removed from the
+  directory keeps access until the session ends. Recheck on an interval
+  (`checked_at`/`verified_at` on the row) and fail closed once an outage outlasts a
+  stated grace period.
+- **Run `sessiontest` against the real store**, through the real sign-in and lookup
+  paths. Its `Backdate` must recompute every stored expiry and derived timestamp, or
+  the suite tests rows that cannot exist.
+- **An added column can stop the rollback.** A migration provider that refuses a
+  database newer than its binary (`goosestrict` does) makes the previous image refuse
+  to start after even an additive migration. Ship a Down, write the exact undo SQL in
+  the deploy note and rehearse it on a copy, as the app's user with the app stopped.
+  Prefer a stop-first deploy when the old container would keep writing rows the new
+  schema then has to reconcile.
+- **Retiring an environment variable: ignore a leftover value.** Deploy configs keep
+  it for a while; failing startup over a setting nothing reads is an outage for
+  nothing.
+- **Random values flake text assertions.** A base64url id that starts with `-` gets
+  `CSVCell`'s apostrophe; a short string such as `R43` turns up inside random token
+  text a few runs in a thousand. Force the fixture's values, or strip tokens before
+  scanning output for what must be absent.
+- **Proving erased data is gone takes more than a query.** Byte-scan the main file,
+  the `-wal` and the `-shm`; classify each main-file hit with `dbstat` before
+  concluding (short numbers coincide with unrelated data); check free pages and the
+  freelist (`secure_delete` zeroes them). Backups and old containers' logs still hold
+  copies.
+- **Store only what you need, for as long as you need it.** An amount kept only until
+  a payment settles is one less thing to erase, export or leak.
 
 ---
 
@@ -431,8 +501,10 @@ above hit, every submission was still in the database with `email_sent = 0`.
   page redirects once a session exists, so the scrape returns nothing. Pass the
   token the sign-in helper returns.
 - **Emulate a browser's origin headers.** nosurf checks `Sec-Fetch-Site`, `Origin`
-  and `Referer` as well as the token; a test sending none is not emulating a form
-  post. On plain HTTP, `SetIsTLSFunc` must say so or every post looks cross-origin.
+  and `Referer` as well as the token, and refuses a post with none of them; a test
+  sending none is not emulating a form post. Send the configured `Origin` to exercise
+  the comparison (`Sec-Fetch-Site: same-origin` skips it). On plain HTTP, the policy
+  needs `Insecure` and an `http://` origin, or every post looks cross-origin.
 - **Kill stale servers and pick a fresh port.** A `go run` left over from an
   earlier check, still answering on the same port, produced a confident false
   reading twice. The giveaway is a response that does not match what the code
