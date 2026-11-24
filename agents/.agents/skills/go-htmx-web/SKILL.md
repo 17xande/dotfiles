@@ -44,15 +44,16 @@ Stated first because burying them at the bottom demonstrably does not work — t
 exists because both were mentioned in passing and both were still skipped.
 
 **gopls — not grep — for anything about Go symbols.** Load the `go-lsp` skill for the
-full workflow (gopls MCP tools; in Claude Code the `LSP` tool is the fallback). Reach for it *before*:
+full workflow: `gopls` run from the command line, inside the module. Reach for it *before*:
 
-- renaming or changing the signature of anything exported;
-- deleting a function or type — `findReferences` first, so "unused" is a fact;
-- exploring an unfamiliar package's API (`documentSymbol`, `hover`);
-- asking "where is this used" or "did that break anything".
+- renaming or changing the signature of anything exported (`gopls rename -l`/`-d`/`-w`);
+- deleting a function or type — `gopls references` first, so "unused" is a fact;
+- exploring an unfamiliar package's API (`go doc ./pkg`, `gopls symbols file.go`);
+- asking "where is this used" or "did that break anything" (`gopls references`,
+  `gopls check file.go`, then `go vet ./...`).
 
 ripgrep is for non-Go text. The file-edit tool is for file text. Neither is a substitute for
-the LSP when the question is about a *symbol*.
+gopls when the question is about a *symbol*.
 
 **A real browser for every UI change — always headless.** Not a screenshot as an
 afterthought — navigate, click the thing you changed, submit the form, and read the
@@ -390,8 +391,8 @@ phase under a 45-minute cap, a separate Opus agent reviews every phase.
   reasoning behind a trade-off. Bodies are prose, not bullet dumps.
 - Comments explain *why* — the trade-off, the rejected alternative, the non-obvious
   constraint. The README carries the dependency rationale, not just a list.
-- Tooling is not a preference — see "Tools" at the top of this file. gopls (the `go-lsp`
-  skill) for Go symbols, a headless browser for every UI change.
+- Tooling is not a preference — see "Tools" at the top of this file. gopls on the command
+  line (the `go-lsp` skill) for Go symbols, a headless browser for every UI change.
 
 ## The rule that overrides convenience
 
