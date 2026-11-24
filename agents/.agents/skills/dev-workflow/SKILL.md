@@ -84,6 +84,9 @@ an Opus agent when the user has granted best judgement, see 1).
   do not push", stack-skill rules that apply (e.g. headless Chromium only, the
   chrome-devtools MCP only if launched `--headless`; kill only your own PIDs). Tell it to stop and report rather than
   decide when it meets an architecture question.
+- **Briefs for Go work say: use `gopls` from the command line (the `go-lsp` skill) for
+  renames, references and signature changes**, not grep or hand edits — grep can't tell
+  your `New` from `errors.New`, and a hand-edited rename misses call sites.
 - **Every brief says: undo a change with a targeted edit, never `git checkout`, `git
   stash` or `git restore`.** Those act on the whole file or tree; an implementer reverting
   one experiment that way wiped its own earlier edits.
