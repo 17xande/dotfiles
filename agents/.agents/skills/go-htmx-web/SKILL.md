@@ -14,7 +14,8 @@ description: >
   "should I use <framework/library>", "sqlite or postgres", "set up migrations",
   "add a dependency", "scaffold", htmx, sqlc, goose, STRICT tables, "admin area",
   "admin page", CSP, "review this", "why is this broken", "look and feel",
-  "default theme", "update dependencies", S3, object storage, rate limit.
+  "default theme", "update dependencies", S3, object storage, rate limit, CSRF,
+  sessions, cookies, websec.
 ---
 
 # Go + htmx web applications
@@ -29,7 +30,7 @@ once.
 
 | File | Read it when |
 |---|---|
-| `setup.md` | Founding a project: the stack, the dependency rule, embedding, CSS, the local stack |
+| `setup.md` | Choosing the stack or a shared module: the module index, pinned READMEs, embedding, CSS, the local stack |
 | `scaffold.md` | Starting a project — concrete working files, Postgres and SQLite variants |
 | `sqlite.md` | The database is SQLite: STRICT, DSN, atomic writes, seed/export |
 | `review-traps.md` | Reviewing, debugging, or about to ship a phase |
@@ -186,10 +187,12 @@ Set this up early; retrofitting is worse.
   is invisible to `curl` and to the rendered markup — only a real browser enforces it.
   Strip to scheme+host for CSP purposes (a `PublicOrigin()` helper) and regression-test it.
 - **Use the shared modules, don't re-implement them** (table in `setup.md`): password
-  hashing, rate limits and client IP, mail and payment gateways each live in a
+  hashing, rate limits and client IP, CSRF, session cookies and lifetimes, redirects and
+  CSV exports, SQLite setup, mail and payment gateways each live in a
   `github.com/17xande-dev/` module that was extracted because the per-app copies had
-  drifted into real bugs. If a module lacks something, change the module and tag it;
-  never fork its code into an app.
+  drifted into real bugs. Each module's README, at the version the app pins, is the
+  usage guide. If a module lacks something, change the module and tag it; never fork
+  its code into an app.
 - **argon2id** password hashing via `github.com/17xande-dev/password`: `Hash` / `Check`
   (PHC strings; bcrypt still verifies; `rehash` says when to upgrade with a
   compare-and-swap on login), `Validate` at write time. **Cap concurrent hashes**:
@@ -199,17 +202,20 @@ Set this up early; retrofitting is worse.
 - **Per-IP rate limits** via `github.com/17xande-dev/ratelimit`: `ratelimit.New(Config{Rate,
   Burst})` then `Middleware(source, HTTPOptions{RetryAfter})`. It already keys IPv6 by
   its /64, hard-caps the map and fails closed when full (`FailOpenWhenFull` only by
-  deliberate choice). Use `Allow(key)` for a second-tier key (email/username) only after
-  the IP check passed; normalising or hashing that key stays the app's job. Rates,
-  bursts and the 429 body are per-app decisions.
+  deliberate choice). Use a separate account limiter with
+  `Allow(ratelimit.AccountKey(account))` only after the IP check passes. Rates,
+  bursts, input validation and the 429 body are per-app decisions.
 - **Client IP** via `ratelimit/clientip`: a `Source` with **either** `TrustedProxies`
   (CIDRs whose hops append to `X-Forwarded-For`) **or** one `TrustedHeader`, never both;
   the zero `Source` is the socket peer. `CF-Connecting-IP` as the trusted header is
   correct only when Cloudflare is the *only* way in (a tunnel) — behind any other proxy
   that passes it through, it is client-chosen. Set
   `http.Server{ReadHeaderTimeout, MaxHeaderBytes: 64 << 10}`.
-- **CSRF** via nosurf, incl. origin checks. Cookies `SameSite=Lax`; scope the cart/session
-  cookie to its path so catalog pages stay cacheable and embeddable.
+- **CSRF via `websec/csrf`** (nosurf underneath): the exact public `Origin` is required,
+  and `Renew` runs at sign-in, sign-out and password change. Wrap the mux with it and
+  parse no body ahead of it: nosurf reads the form to find the token before any auth,
+  so the cap must sit in front, and a `MaxBytesReader` in a handler comes too late. More
+  in [Kit adoption traps](review-traps.md#kit-adoption-traps).
 - **HSTS off by default** — a browser ignores it over plain HTTP, and sending it from
   localhost pins a rule that breaks the next project on that port. No `preload`: that is
   the operator's decision, with a slow exit.
@@ -228,15 +234,18 @@ Set this up early; retrofitting is worse.
 - **Make a failed login cost the same as a missing account**: `password.CheckDummy` when
   the email is unknown, check `disabled` *after* the password, one message for every
   cause.
-- **Sessions: prefer a database table over a signed cookie** whenever you need named
-  accounts, per-user disable, or "changing a password ends existing sessions" — each of
-  those is a per-request lookup anyway, so the table is the mechanism, not the cost. An
-  opaque `crypto/rand` token stored as its `sha256` is then the whole design. Reach for
-  `gorilla/securecookie` only when the cookie must genuinely carry claims and nothing
-  needs revoking.
-- **An admin credential ignores the public `SameSite` setting.** A `COOKIE_SAMESITE` knob
-  exists so a public embedded form can be cross-site; letting an admin cookie follow it to
-  `None` lets any site make the browser send it. Hard-code `Lax` and comment why.
+- **Sessions: a database table, timed by `websec/session`.** Named accounts, per-user
+  disable and "a password change ends sessions" each need a per-request lookup anyway,
+  so store the `sha256` of an opaque `crypto/rand` token and join it to the user. Use
+  both an idle and the mandatory absolute limit, with the `last_seen` write throttled by
+  `NeedsTouch`: a sliding expiry written on every request is a smell. Run
+  `websec/session/sessiontest` against the real store. `gorilla/securecookie` only when
+  the cookie must carry claims and nothing needs revoking.
+- **Session cookies via `websec/cookie`:** Lax and HttpOnly are fixed, never following a
+  cross-site knob a public embed needs (an admin credential at `SameSite=None` lets any
+  site send it). Pass a bare name: the builder derives `__Host-` at `/` or `__Secure-` on
+  a narrower path, so adopting it **signs everyone out once**; say so in the deploy
+  note. Scope cart and admin cookies to their paths so public pages stay cacheable.
 - **Parse a state change strictly.** `value == "1"` makes every other value — including an
   absent field — mean the *other* thing. Require an explicit `"0"`/`"1"` and 400 otherwise,
   or a POST with an empty body silently performs the unguarded direction.
