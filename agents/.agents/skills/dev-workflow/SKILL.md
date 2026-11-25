@@ -90,6 +90,11 @@ an Opus agent when the user has granted best judgement, see 1).
 - **Every brief says: undo a change with a targeted edit, never `git checkout`, `git
   stash` or `git restore`.** Those act on the whole file or tree; an implementer reverting
   one experiment that way wiped its own earlier edits.
+- **Checks run locally, not on hosted CI.** The user prefers local checks and removed
+  the hosted workflows from their projects, so the project's Makefile gate (`make gate` or its
+  equivalent) is the single definition of green. Implementers and reviewers run it
+  themselves, uncached and with its database up, and report the result and the skip
+  count; a brief never says "CI will catch it", and nobody adds a workflow unasked.
 - Small one-line fixes the orchestrator may make inline.
 
 ## 4. Watch the clock: check in ~15 min, stop at 45
@@ -149,9 +154,10 @@ an Opus agent when the user has granted best judgement, see 1).
 ## Reviewing or returning to a codebase
 
 - **Update every dependency as part of the work**, unasked: language modules (indirect
-  too), the toolchain wherever it is pinned (module file, Dockerfile, CI), CI actions,
-  base images, pinned build tools. Newest release at least two weeks old; one commit per
-  kind; vulnerability scan clean. The stack skill has the specifics.
+  too), the toolchain wherever it is pinned (module file, Dockerfile), base images,
+  vendored scripts, pinned build tools. Newest release at least two weeks old (an
+  exception only on the user's word, recorded as one-time); one commit per kind;
+  vulnerability scan clean. The stack skill has the specifics.
 - **A multi-repo sweep**: one read-only Opus audit agent per repo, all given one shared
   brief file (the lessons to look for, the severity rubric from 5, "start no containers,
   change nothing") -> the orchestrator triages with the user -> one fix agent per repo ->
