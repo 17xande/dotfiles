@@ -3,8 +3,13 @@
 Everything specific to the SQLite variant of this stack. Distilled from a real
 project shipped this way.
 
-This replaces the Postgres rows in `setup.md`'s stack table and its whole
-"sqlc + goose workflow" section. Everything in `SKILL.md` still applies unchanged.
+This replaces the Postgres rows in `setup.md`'s stack table and the sqlc half of
+its "sqlc + goose workflow" section. Everything in `SKILL.md` still applies unchanged.
+
+**The reference implementation is the gowebkit SQLite template** (`scaffold.md`):
+`internal/db` (lock, check, migrate, status, backups), `internal/store`,
+`internal/dbtest` and `docs/database.md`, read at a tag. Start from it rather than
+from this file's snippets.
 
 ## Choosing SQLite or Postgres
 
@@ -76,7 +81,8 @@ What `DSN` sets, on every pooled connection, and why:
   on network filesystems, and it changes what a backup is: **a `cp`, `docker cp` or
   volume tar of a running WAL database can capture a torn state**. Backups are
   `VACUUM INTO` (sqlitekit `Backups`) or `sqlite3 .backup`, and every README recipe
-  says so.
+  says so. Never delete the `-wal`/`-shm` of a database in use: committed data can
+  live only in the WAL.
 - `synchronous` stays at SQLite's default (FULL): a committed write survives a power
   cut.
 
@@ -231,8 +237,11 @@ command, two containers in a deploy overlap) both apply the same migration —
 very first open of a fresh database is not covered by `busy_timeout` — through
 `Check`, any adoption and `Up`, and release it on every return path. Pass the same
 absolute path every process opens, and run every process as the same user (the lock
-file belongs to whoever creates it). Test it with N concurrent opens of a fresh
-database, and show the test fails without the lock.
+file belongs to whoever creates it). Bound the wait (the template: one minute, then
+an error naming the lock file) so a stuck process fails a deploy instead of hanging
+it, and never delete the lock file as a remedy: a holder keeps the old inode. Test it
+with N concurrent opens of a fresh database, and show the test fails without the lock.
+A status command (`-migrate-status`) must not create the database or goose's table.
 
 goose's stock SQLite version table uses a `TIMESTAMP` column that STRICT rejects;
 `goosestrict.NewStore` is the STRICT version. Use it from the start: retrofitting a
@@ -247,8 +256,9 @@ on a copy before adopting.
   database silently diverges from the schema file. Say so in a comment next to
   `Open` so it is not re-added by reflex.
 - Before the first deployment, a schema change can still be an edit to
-  `0001_init.sql` plus `make recreate-db`; after it, only new numbered files.
-- Keep config reproducible from JSON so drop-and-recreate stays cheap: a
+  `0001_init.sql` plus `make recreate-db CONFIRM=1` (local data only); after it, only
+  new numbered files, each with a Down.
+- If a project's configuration lives in the database, keep it reproducible from JSON: a
   `SeedFromFile(path, force)` that is insert-only unless forced, plus an
   `ExportJSON` that writes the database's current state back out in the shape the
   seeder reads. That pair is what makes the database the source of record without
