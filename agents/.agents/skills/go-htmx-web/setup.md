@@ -3,7 +3,8 @@
 The decisions you make once, at the start. `SKILL.md` covers everything that applies for
 the rest of the project's life; this is the part you can stop re-reading after week one.
 
-Concrete files to start from are in `scaffold.md`.
+A new project starts from the gowebkit template (`scaffold.md`), which already embodies
+these decisions; this file is why, and what to weigh when a project needs more.
 
 ## The stack
 
@@ -17,7 +18,7 @@ Concrete files to start from are in `scaffold.md`.
 | CSS | plain modern CSS: custom properties, native nesting, `clamp()` | Tailwind, Bootstrap, any framework |
 | DB | **SQLite** (single instance) or **Postgres** via `jackc/pgx/v5` — see below, and `sqlite.md` | an ORM; `lib/pq` |
 | Queries | **sqlc** on Postgres; `database/sql` + typed store methods on SQLite | GORM, ent |
-| Migrations | **goose** on Postgres; **none** on greenfield SQLite — drop and recreate | a hand-rolled migration runner, or startup `ALTER`s |
+| Migrations | **goose** on both, from the first commit: on SQLite through `sqlitekit/goosestrict` inside `MigrationLock`; on Postgres under a session advisory lock | a hand-rolled migration runner, or startup `ALTER`s |
 | Config | env vars only, parsed into one struct in `internal/config` | viper, config files |
 | Money | integer cents (`PriceCents int64`) | float, a decimal library |
 | Container | multi-stage build → `distroless/static-debian13:nonroot` | alpine + a shell in production |
@@ -77,12 +78,13 @@ app; the module holds only the mechanism.
 
 | Module | For | The app keeps |
 |---|---|---|
-| `github.com/17xande-dev/password` | argon2id `Hash` / `Check` (`rehash` flag, bcrypt still verifies), `CheckDummy` for unknown accounts, `Validate` at write time, `SetConcurrency` (call it at startup), `SetParamsForTesting` (in `TestMain`: the params are global, so not per test with `t.Parallel`) | the password policy and its messages; the `hashpw` command; the compare-and-swap that saves a rehash |
+| `github.com/17xande-dev/gowebkit/template/sqlite` (or `/postgres`) | not imported: the starting app, generated once with `gonew` and read at a tag (`scaffold.md`); the reference for how the modules below fit together | everything after generation: the app is a fork |
+| `github.com/17xande-dev/password` | argon2id `Hash` / `Check` (`rehash` flag, bcrypt still verifies), `CheckDummy` for unknown accounts, `Validate` at write time, `SetConcurrency` (call it at startup), `SetParamsForTesting` (in `TestMain`: the params are global, so not per test with `t.Parallel`) | the password policy and its messages; the `-reset-password` flag; the compare-and-swap that saves a rehash |
 | `github.com/17xande-dev/ratelimit` | keyed token buckets: IPv6 by /64, a hard cap that fails closed, `Middleware` with `RetryAfter` or a custom `Exceeded` 429, `Allow(key)` for second-tier keys, an `OnFull` hook, an injectable clock; `AccountKey` trims and lower-cases, then hashes results over 200 bytes | rates, bursts, the 429 body, identifier validation and checking the IP tier first |
 | `github.com/17xande-dev/ratelimit/clientip` | `Source` from `TrustedProxies` CIDRs **or** one `TrustedHeader` (`New`, or `ParseSource` for a `remote`/`forwarded`/`cloudflare` env value); bare, unmapped, zone-free addresses | which policy matches the real ingress (document it next to the deploy config) |
 | `github.com/17xande-dev/mailer` (+ `/msauth`) | one `Sender` interface: SMTP (go-mail), Microsoft Graph, `Discard`, `Fake` for tests; XOAUTH2 tokens for Exchange Online | the templates and what gets sent when |
 | `github.com/17xande-dev/sqlitekit` (+ `/goosestrict`) | SQLite on `modernc.org/sqlite`: `DSN` + `Check` (foreign keys, WAL, `_txlock=immediate`, busy timeout, optional secure_delete, verified at startup), `Backups` (daily `VACUUM INTO`, 0600, retention), `MigrationLock` (cross-process, hold it around every migration), goose on STRICT tables with `NewProvider` and `Adopt` | the migrations, the backup folder/prefix/retention, whether it needs `SecureDelete`, and running `Backups.Run` from its cleanup loop |
-| `github.com/17xande-dev/websec` | **Root:** `SafeRedirect` for `?next=` and other request-supplied redirects; `CSVCell` / `CSVRow` for spreadsheet-bound exports.<br>**`cookie`:** the session cookie builder: Lax and HttpOnly fixed, `__Host-` (at `/`) or `__Secure-` (narrower path) derived from a bare name, `Insecure` for plain-HTTP dev only.<br>**`csrf`:** the nosurf policy: a mandatory body cap applied before the token is parsed, multipart refused unless a route's `Limit` opts in, a required exact `Origin` (`ValidateOrigin` checks it early), `Renew`, logged failures, `OnBodyError` and `LogPath`.<br>**`session`:** `Lifetime`: idle plus a mandatory absolute limit, `NeedsTouch` to throttle the `last_seen` write (a future value is rewritten), `ExpiresAt` / `AbsoluteExpiry` for the cookie.<br>**`session/sessiontest`:** the conformance suite every app runs against its own store. | **Root:** the fallback page, which paths to `Deny`, and which exports are for spreadsheets (not machine imports).<br>**`cookie`:** the bare name, the path, and persistent vs `BrowserSession`.<br>**`csrf`:** the origins, per-route caps, authenticating large uploads before the wrapper, the `Renew` calls (sign-in, sign-out, password change), the log label.<br>**`session`:** the store and its schema, token hashing, the lifetimes, the clock, revocation and the sweep.<br>**`session/sessiontest`:** a small adapter from the suite's callbacks to the real store. |
+| `github.com/17xande-dev/websec` | **Root:** `SafeRedirect` for `?next=` and other request-supplied redirects; `CSVCell` / `CSVRow` for spreadsheet-bound exports.<br>**`cookie`:** the session cookie builder: Lax and HttpOnly fixed, `__Host-` (at `/`) or `__Secure-` (narrower path) derived from a bare name, `Insecure` for plain-HTTP dev only.<br>**`csrf`:** the nosurf policy: a mandatory body cap applied before the token is parsed, multipart refused unless a route's `Limit` opts in, a required exact `Origin` (`ValidateOrigin` checks it early), `Renew`, logged failures, `OnBodyError` and `LogPath`.<br>**`session`:** `Lifetime`: idle plus a mandatory absolute limit, `NeedsTouch` to throttle the `last_seen` write (a future value is rewritten), `ExpiresAt` / `AbsoluteExpiry` for the cookie.<br>**`session/sessiontest`:** the conformance suite every app runs against its own store.<br>**`webtest`** (tests only): a browser-like client (`New` in-process, `NewServer` over a connection; jar, `Origin`, no redirect following), `Page`/`Form`/`SignIn`, a strict anonymous-route `Sweep` over `Routes` with a `Min` floor, `WantCookie`, `CookieAt`, `NewCountingReader`/`Filler`, `NoTempFiles`, `Logger` + `NoSecrets`, `Raw`, `HostileRedirects`. | **Root:** the fallback page, which paths to `Deny`, and which exports are for spreadsheets (not machine imports).<br>**`cookie`:** the bare name, the path, and persistent vs `BrowserSession`.<br>**`csrf`:** the origins, per-route caps, authenticating large uploads before the wrapper, the `Renew` calls (sign-in, sign-out, password change), the log label.<br>**`session`:** the store and its schema, token hashing, the lifetimes, the clock, revocation and the sweep.<br>**`session/sessiontest`:** a small adapter from the suite's callbacks to the real store.<br>**`webtest`:** the route lists, exact floors, `Public` reasons, the refusal check, and expected values written out by hand. |
 | `github.com/17xande-dev/payment` (+ `/payfast`, `/snapscan`) | gateways, `Registry`, the signed handover form, ITN/webhook verification, `CSPOrigins` for `form-action`/`img-src`, a `Fake` gateway, `?ref=` return URLs | orders/gifts, amount checks against the stored record, the read cap on callback bodies |
 
 **This table is the index; each module's README is the manual**, and the one that
@@ -104,11 +106,15 @@ into the file that documents what the *server* depends on. Keep `go.mod` a truth
 statement of the binary's dependencies. govulncheck likewise
 (`GOVULNCHECK_VERSION ?= v1.9.0`, installed with `go install`; v1.1.x crashes on Go 1.27).
 
-**Which version: the newest tag at least two weeks old** — for modules, tools, actions
-and images alike. A fresh release has had no time to be yanked or patched. Example: on
-2026-10-30 that gave `service/s3` v1.114.3, `feature/s3/manager` v1.23.14,
-`credentials` v1.20.9, not the releases of that week. Updating is a standing part of any
-review (see `SKILL.md`).
+**Which version: the newest tag at least two weeks old** — for third-party modules,
+tools, images and vendored scripts (htmx) alike. A fresh release has had no time to be
+yanked or patched. Example: on 2026-10-30 that gave `service/s3` v1.114.3,
+`feature/s3/manager` v1.23.14, `credentials` v1.20.9, not the releases of that week.
+Check the date (`go list -m -json <mod>@<v>` → `Time`; `npm view <pkg> time --json`),
+and again just before a release. **An exception needs the user's explicit word**, and is
+recorded where the pin is explained (changelog or commit message) as a one-time
+exception with the reason; the rule stands for the next bump. Updating is a standing
+part of any review (see `SKILL.md`).
 
 Record decisions you deliberately defer in a **"Decisions still open"** table in the
 README (candidate + the trigger that would force it), so they get decided deliberately
@@ -212,9 +218,10 @@ drop-and-recreate — see `sqlite.md`.
 2. Write/edit the query in `internal/db/queries/*.sql` with a sqlc annotation
    (`-- name: GetProduct :one`).
 3. Run **`make sqlc`** to regenerate `internal/db/gen`. Never hand-edit generated code.
-4. **`make sqlc-check`** (`sqlc diff`) fails if the checked-in output is stale — CI runs it
-   first, so a query edited without regenerating is caught on the PR rather than by a
-   reviewer noticing the SQL and the Go disagree.
+4. **`make sqlc-check`** (`sqlc diff`) fails if the checked-in output is stale — the
+   gate runs it first (`fmt-check` depends on it), so a query edited without
+   regenerating fails locally rather than by a reviewer noticing the SQL and the Go
+   disagree.
 
 Migrations are applied on boot (goose holds a session-level advisory lock, so concurrent
 boots of a scaled-out deployment are safe), and also on demand via `-migrate` /
@@ -228,11 +235,12 @@ keeping a dead column forever.
 ## Local stack and Makefile
 
 
-`compose.yaml` runs the real dependencies — Postgres, plus `mailpit` for outgoing mail and
-`rustfs` for S3 behind a `profiles: ["s3"]` gate (so it does not bind 9000 by default) —
-so `make up` gives a working system with nothing stubbed. Publish development-only
-credentials in it (and say loudly in the README that they are published) so the
-quickstart actually works. Create a bucket with
+The template's `compose.yaml`, `Makefile` and `db.mk` are the reference (`make help`
+lists the targets). `compose.yaml` runs the real dependencies — `mailpit` for mail, plus
+Postgres on that variant — so `make up` gives a working system with nothing stubbed,
+with development-only credentials published in it and said so in the README. A project
+that stores files adds `rustfs` behind a `profiles: ["s3"]` gate (so it does not bind
+9000 by default); create a bucket with
 `curl --aws-sigv4 aws:amz:auto:s3 --user rustfsadmin:rustfsadmin -X PUT http://127.0.0.1:9000/<bucket>`.
 
 **Postgres 18** (`postgres:18-alpine`): mount the volume at **`/var/lib/postgresql`**,
@@ -242,14 +250,15 @@ needs dump and restore; document it in the backups doc. **Passwords interpolated
 `DATABASE_URL` must be URL-safe** (`openssl rand -hex 32`) or percent-encoded: pgx 5.11
 splits userinfo at the first `@`.
 
-Essential targets: `up down logs run migrate migrate-status seed hashpw psql sqlc
-sqlc-check sqlc-install build test vet fmt fmt-check vulncheck vulncheck-install tidy`.
-`seed` depends on `migrate`, so seeding an unmigrated database reports a missing migration
+Pinned build tools install themselves on first use (`$(GOVULNCHECK):` and `$(SQLC):`
+file targets), so a clean machine needs no setup step. A `seed` target, if a project adds
+one, depends on `migrate`, so seeding an unmigrated database reports a missing migration
 rather than a missing table. `SHELL := bash` if any recipe uses bash features.
 
-CI: `sqlc-check` → `fmt-check` → `go vet` → `go build` → `go test -race ./...` against a
-real Postgres service container → `vulncheck` (last, so a new CVE cannot hide the test
-results), plus a `docker build` job. Database-backed tests run in CI, so a PR cannot break
-migrations silently; the S3 contract test should run there too, against a RustFS service.
-
-See `scaffold.md` in this skill directory for the concrete starting files.
+**Checks run locally, not on hosted CI.** The user prefers local checks and removed the
+hosted workflows; the template ships none. The project's Makefile gate (`make gate` in
+the template) is the single definition of "green": `fmt-check` (with `sqlc-check` first on Postgres) → `vet` → `go test -race
+-count=1 -v ./...` printing the skip count, with the database tests required → `vulncheck`
+(last, so a new CVE cannot hide the test results). Run it before every commit and report
+the result; never write "CI will catch it". Run the S3 contract test by hand after an
+SDK update and say so.
