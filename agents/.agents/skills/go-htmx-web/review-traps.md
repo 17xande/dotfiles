@@ -136,6 +136,15 @@ This was found in three separate phases, twice *after* being written down:
 `sqlite.md` for the shapes. Being able to recite the rule is not the same as
 applying it to the function you are writing.
 
+**⚠️ On Postgres the one statement is not enough.** Under READ COMMITTED two
+`UPDATE`s on different admin rows each count two enabled admins in their own
+snapshot, both succeed, and none remain; SQLite is safe only because
+`_txlock=immediate` serialises writers, so the SQLite suite cannot see it. Lock first
+(`SELECT … FOR UPDATE` over the rows the count reads, or `pg_advisory_xact_lock`).
+Likewise a sign-in's `INSERT … SELECT FROM users WHERE password_hash = $1` needs
+`FOR SHARE` on the user row, or a session survives a concurrent password reset. Prove
+each lock with a test that holds it in one transaction and asserts the other blocks.
+
 ### ⚠️ A form that writes back an absolute value someone else changes
 
 The variant edit form was pre-filled with stock at page load and saved
@@ -234,6 +243,15 @@ needs a proxy that *appends* its peer to `X-Forwarded-For` (Kamal's proxy needs
 `forward_headers: true` for that), and a `TrustedHeader` is only safe when nothing can
 reach the app around the component that sets it. A wrong `Source` either lets every
 visitor spoof their key or puts every visitor in one bucket.
+
+**⚠️ Under Kamal, both obvious values are wrong somewhere.** `remote` sees only the
+proxy container, so every visitor shares one sign-in bucket (a burst of bad posts locks
+everyone out) and every log line shows the proxy. `forwarded` (leftmost
+`X-Forwarded-For`) is safe only behind an ingress that *replaces* the header: Kamal
+Proxy with `ssl: true` rebuilds it (read in its v0.10.2 source), but with `ssl: false`
+it appends, and a rehearsal logged a client-forged address as the client. Behind a
+tunnel use `cloudflare` (if Cloudflare is the sole way in) or accept `remote`; after a
+first deploy, read `client_ip` from a failed sign-in.
 
 ### Unbounded password-hash concurrency
 
@@ -374,6 +392,19 @@ identically to a wrong password. Otherwise response time and message between the
 tell an attacker which addresses have accounts. Check `disabled` *after* the
 password, or the account state becomes an oracle for the password being right.
 
+Test the dummy check with a **well-formed** unknown address: a malformed one returns
+before the database, so an early return for "not found" passes. Make the call
+observable (a package variable `checkDummy = password.CheckDummy` a test swaps for a
+counter) rather than timing it.
+
+### ⚠️ A credential header never falls back to the cookie
+
+An API that accepts `Authorization: Bearer` and also a session cookie must use the
+cookie only when **no** `Authorization` header is present. `Bearer ` with an empty
+token, `Basic …`, an unparsable value or a second header all fell back to the cookie
+in two apps. Any header present: exactly one, parsed as `Bearer <non-empty>`, or 401.
+Parse the scheme separator as space or tab, and do not trim Unicode spaces.
+
 ### Password policy: length only
 
 No composition rules — they push people towards short mangled words while argon2id
@@ -411,7 +442,16 @@ carry the API; these are the mistakes the adoption itself produced.
   pre-change token after the change and expect 403.
 - **A cookie prefix is a rename.** Adopting `__Host-`/`__Secure-` signs everyone out
   once and makes forms open at deploy time expire once: put both in the deploy note.
-  Test that a bare-named legacy session cookie is ignored, not honoured.
+  Test that a bare-named legacy session cookie is ignored, not honoured. A browser
+  stores a `__Host-` cookie only with Secure, `Path=/` and no Domain, so a dev setup
+  over plain HTTP silently has no session unless the builder is `Insecure`.
+- **⚠️ Test the cookie the config builds**, not one the test constructs: every handler
+  test building its own cookie let `Insecure: true` in `config.Load` reach production
+  unseen. Set it from the loaded config and check it with `webtest.WantCookie`.
+- **Compute lifetimes from the columns rows already have** (`created_at`, `last_seen`)
+  through `session.Lifetime`; a stored `expires_at` is only derived. Existing rows then
+  get their real age at deploy, with no backfill. Check what the *old* binary does with
+  the derived values the new one writes, and put it in the rollback note.
 - **Never log a path that carries a one-time token.** Log the matched mux pattern
   (`LogPath` for the CSRF refusals, the same for request logs) and a constant for
   unmatched routes. A prefix redactor misses `//auth/<token>`, which the mux answers
@@ -443,6 +483,12 @@ carry the API; these are the mistakes the adoption itself produced.
 - **Retiring an environment variable: ignore a leftover value.** Deploy configs keep
   it for a while; failing startup over a setting nothing reads is an outage for
   nothing.
+- **Booleans are `true` or `false`, nothing else.** `0`/`1`/`auto`/empty were each
+  read differently by different apps; an `auto` that trusted a forwarded header made
+  `Secure` client-controlled. Refuse anything else in `config.Load`.
+- **`-migrate-down` refuses the baseline** and a missing database: undoing `0001` drops
+  every table, and a mistyped `kamal app exec` would do it. Go back past the baseline
+  with a backup.
 - **Random values flake text assertions.** A base64url id that starts with `-` gets
   `CSVCell`'s apostrophe; a short string such as `R43` turns up inside random token
   text a few runs in a thousand. Force the fixture's values, or strip tokens before
@@ -459,29 +505,14 @@ carry the API; these are the mistakes the adoption itself produced.
 
 ## Mail
 
-### Only pass an `smtp.Auth` when credentials exist
+### Send through `mailer`, not `net/smtp`
 
-```go
-auth := smtp.PlainAuth("", s.User, s.Pass, s.Host)   // wrong
-```
-
-`smtp.PlainAuth` returns a **non-nil** `Auth` even for an empty user, and
-`smtp.SendMail` hard-fails with `server doesn't support AUTH` whenever it holds a
-non-nil `Auth` and the server advertises no AUTH extension. That is mailpit — so
-local development, exactly as documented in the README, could never send mail.
-
-```go
-var auth smtp.Auth
-if s.User != "" {
-	auth = smtp.PlainAuth("", s.User, s.Pass, s.Host)
-}
-```
-
-It survived because the transport had **no test at all** — only the header-sanitising
-helper beside it did. Test the thing that talks to the network: a fake SMTP server
-in-process, runnable with *and without* the AUTH extension, is ~80 lines and pins
-the credential-less path, the authenticated path, and bcc staying out of the
-headers. (Reply `235` to `AUTH`, not `250`, or the client rejects it.)
+A hand-rolled sender passed `smtp.PlainAuth` with an empty user, which is a non-nil
+`Auth`, so every send to mailpit (no AUTH offered) failed and local mail never worked.
+It survived because only the header helper beside the transport had a test.
+`mailer`'s SMTP sender attempts no AUTH without credentials and pins that against an
+in-process fake server; an app that still talks `net/smtp` is the finding. The lesson
+that stays: test the code that talks to the network, not the helper beside it.
 
 ### Persist before sending, always
 
@@ -503,8 +534,38 @@ above hit, every submission was still in the database with `email_sent = 0`.
 - **Emulate a browser's origin headers.** nosurf checks `Sec-Fetch-Site`, `Origin`
   and `Referer` as well as the token, and refuses a post with none of them; a test
   sending none is not emulating a form post. Send the configured `Origin` to exercise
-  the comparison (`Sec-Fetch-Site: same-origin` skips it). On plain HTTP, the policy
-  needs `Insecure` and an `http://` origin, or every post looks cross-origin.
+  the comparison (webtest does by default); a client that always sends
+  `Sec-Fetch-Site: same-origin` skips it and hides a wrong trusted origin. On plain
+  HTTP, the policy needs `Insecure` and an `http://` origin, or every post looks
+  cross-origin.
+- **⚠️ An expectation computed by the code under test cannot fail.** A Location
+  compared with `safeNext(next)`, a cookie name from `cookie.PrefixedName`: each agrees
+  with the bug it should catch. Write literals. webtest itself re-states the browser
+  rules rather than importing the kit's code, for the same reason.
+- **⚠️ A token helper must read the form it claims to.** `page.Token()` returns any
+  token on the page, and the layout's sign-out form always has one, so a form that
+  lost its own token input still passed. Read it through `Form(action)`.
+- **Sweeps that pass vacuously:** a floor of `len == 0` or far below the real count,
+  every route sent as GET (a POST route's 405 looks like a refusal), a `Public` entry
+  with no reason, a stale `Public` entry nobody checks. Set `Min` to the real count and
+  lower it deliberately when a route goes. In-process, a handler that panics for want
+  of a user kills the test binary instead of naming the route: wrap the mux in a
+  recover-to-500 for the sweep.
+- **Logout tests: replay the old cookie from a fresh client.** Checking that the same
+  client is signed out only proves the cookie was cleared; a logout that leaves the
+  row server-side passed in three apps.
+- **Hostile `?next=` values: loop over `webtest.HostileRedirects()`** and assert the
+  raw Location. One spelling (the tab) let `//` and `/\` through, and a test through
+  `http.Client` fails on a parse error, not on the assertion.
+- **Log probes need a marker, a floor and encodings.** `NoSecrets` requires a literal
+  from the expected line (an empty log passes any absence check), secrets of 12+ bytes
+  (short needles match random ids), and catches base64, hex and percent-encoded copies
+  `strings.Contains` misses. A test whose logger writes to `io.Discard` can never see a
+  leak. Probe every path that handles a secret (sign-in, token issue, setup), not one.
+- **Secure cookies over HTTP in tests.** Go's jar does not send a Secure cookie to a
+  non-loopback `http://` origin, so a production-config test silently loses its
+  session: use an `https://` origin in-process or `httptest.NewTLSServer`. Read a
+  path-scoped cookie with `CookieAt(path, name)`, not an extra request that may renew it.
 - **Kill stale servers and pick a fresh port.** A `go run` left over from an
   earlier check, still answering on the same port, produced a confident false
   reading twice. The giveaway is a response that does not match what the code
@@ -516,7 +577,36 @@ above hit, every submission was still in the database with `email_sent = 0`.
   the day the fixture stops loading.
 - **⚠️ Tests that skip silently without Postgres (or S3).** A green `go test ./...`
   with no `TEST_DATABASE_URL` ran none of the SQL. Run the gate with the database
-  up, state how many tests skipped, and make CI run DB and S3 tests for real.
+  up and state how many tests skipped; make the gate fail without it
+  (`TEST_REQUIRE_DB=1`). There is no hosted CI to run them for you.
+- **A flaky gate is a finding**, not a rerun: random fixture values (see "Kit adoption
+  traps"), or a test that waits on a state flag instead of the callback it checks.
+  "Green on rerun" hides the next real failure.
+
+---
+
+## Deploys
+
+Every deploy needs the user's word; these are the steps that keep one reversible.
+
+- **Back up inside the volume, then rehearse on a copy, on the host.** A `VACUUM INTO`
+  (or `sqlite3 .backup`) as the app's UID, `PRAGMA integrity_check` = `ok`; then start
+  the new image with the production environment against a copy in a scratch volume
+  and check `-migrate-status` and `/healthz`. No production data leaves the host;
+  delete the copies when the user agrees.
+- **Verify production with GET requests only.** Never POST to a live form or payment
+  endpoint; a real sign-in is the user's test, and the report says so.
+- **⚠️ Never delete, move or copy a live SQLite database's `-wal` or `-shm`.** Recent
+  commits can live only in the WAL; removing it loses them. No manual checkpoint on
+  production without the user's word.
+- **Postgres accessory first.** `kamal setup` boots the accessory but does not wait
+  for it; the app exits if the database is not up in time. `kamal accessory boot
+  postgres`, wait for `kamal accessory details postgres` to say healthy, then deploy.
+- **A Down step runs in a one-off container** (`kamal app exec --version <new>`) with
+  the app stopped; `--reuse` runs it inside the live server, alongside its writes.
+- **`kamal remove` keeps named volumes** (deleting one is a separate, explicit step);
+  `kamal accessory remove` deletes the accessory's data directory. Keep data on named
+  volumes and check backups before either.
 
 ---
 
