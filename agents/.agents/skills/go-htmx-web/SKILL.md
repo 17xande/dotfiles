@@ -9,13 +9,13 @@ description: >
   debugging one. It carries the layout conventions, admin-area patterns, security
   baseline, testing gate and tool discipline; setup.md carries the founding decisions
   (stack, dependency rule, embedding, CSS theme, local stack), sqlite.md the SQLite
-  data layer, review-traps.md the bugs this stack actually produces, scaffold.md the
-  starting files. Triggers: "new web project", "new Go project", "start a web app",
-  "should I use <framework/library>", "sqlite or postgres", "set up migrations",
-  "add a dependency", "scaffold", htmx, sqlc, goose, STRICT tables, "admin area",
-  "admin page", CSP, "review this", "why is this broken", "look and feel",
-  "default theme", "update dependencies", S3, object storage, rate limit, CSRF,
-  sessions, cookies, websec.
+  data layer, review-traps.md the bugs this stack actually produces, scaffold.md how
+  to start from the gowebkit template. Triggers: "new web project", "new Go project",
+  "start a web app", "should I use <framework/library>", "sqlite or postgres", "set up
+  migrations", "add a dependency", "scaffold", gonew, gowebkit, htmx, sqlc, goose,
+  STRICT tables, "admin area", "admin page", CSP, "review this", "why is this broken",
+  "look and feel", "default theme", "update dependencies", S3, object storage, rate
+  limit, CSRF, sessions, cookies, websec, webtest.
 ---
 
 # Go + htmx web applications
@@ -31,7 +31,7 @@ once.
 | File | Read it when |
 |---|---|
 | `setup.md` | Choosing the stack or a shared module: the module index, pinned READMEs, embedding, CSS, the local stack |
-| `scaffold.md` | Starting a project — concrete working files, Postgres and SQLite variants |
+| `scaffold.md` | Starting a project: `gonew` the gowebkit template, first run, first deploy, reading the template at a version |
 | `sqlite.md` | The database is SQLite: STRICT, DSN, atomic writes, seed/export |
 | `review-traps.md` | Reviewing, debugging, or about to ship a phase |
 
@@ -98,39 +98,42 @@ large (tens of modules, cgo) is still worth raising.
 
 When reviewing a codebase, or coming back to one after a while, **updating all
 dependencies is part of the work**, unasked: Go modules including indirect ones
-(`go get -u ./... && go mod tidy`), the Go toolchain in `go.mod`, the Dockerfile and CI,
-pinned CI actions, base images, and pinned build tools (sqlc, govulncheck). Pick each
-version by the rule in `setup.md` (newest tag at least two weeks old). Each kind gets its
-own commit, the gate passes after each, and `govulncheck` is clean. A major that needs a
+(`go get -u ./... && go mod tidy`), the Go toolchain in `go.mod` and the Dockerfile,
+base images, vendored htmx, and pinned build tools (sqlc, govulncheck). Kit modules
+take their latest tag; everything else the rule in `setup.md` (newest release at least
+two weeks old). Each kind gets its own commit, the gate passes after each, and
+`govulncheck` is clean. A major that needs a
 data migration (Postgres 17 -> 18) is included too, with the dump-and-restore documented;
 skipping it as "too big" is the lapse. Stale dependencies are how a known CVE ships, and
 a big catch-up later is harder to review.
 
 ## Layout
 
+The template's, which every new project starts from (`scaffold.md`):
 
 ```
-main.go                     wiring, graceful shutdown, -migrate / -migrate-status flags
-cleanup.go                  background sweeps
-compose.yaml Dockerfile Makefile .env.example README.md
-.github/workflows/ci.yaml
-cmd/seed/  cmd/hashpw/       small operator commands, each with a test
-internal/config/            all env parsing, one Config struct
-internal/db/                pool, goose runner
+main.go                     flags, config, logger, wiring, http.Server, graceful shutdown
+reset.go setup.go cleanup.go  -reset-password, the setup token, session sweep + backup loop
+compose.yaml Dockerfile Makefile db.mk .env.example config/deploy.yml .kamal/secrets
+docs/                       database.md, deploy.md, operations.md
+internal/config/            all env parsing, one Config; Load validates everything
+internal/db/                Open (lock, check, migrate), Status, MigrateDown, Ping, Backups
 internal/db/migrations/     0001_init.sql, 0002_… (goose Up/Down)
-internal/db/queries/        hand-written .sql, the input to sqlc
-internal/db/gen/            sqlc output — generated, checked in, never edited
-internal/dbtest/            test database helper
-internal/<domain>/          model.go + store.go per domain (catalog, cart, orders)
+internal/db/queries/ gen/   Postgres only: sqlc input, and its checked-in output
+internal/dbtest/            real test database per test
+internal/store/             typed store methods; contract + sessiontest suites
+internal/auth/              users, roles, tokens, password policy
+internal/mail/              a mailer.Sender from config (SMTP or Discard)
+internal/middleware/        request ID, access log (mux pattern), security headers, auth
 internal/handler/           HTTP: one file per area + _test.go alongside
-internal/handler/templates/ go:embed'ed .html and .txt
-internal/handler/static/    go:embed'ed css, htmx, logo.svg, placeholder.svg
-internal/middleware/        security headers, CSRF, rate limits, logging
-internal/auth/ email/ blob/ validate/
+internal/handler/templates/ layouts/{app,plain}.html, pages/{app,plain}/, partials/
+internal/handler/static/    styles.css, htmx (+ licence, hash line), logo.svg
 ```
 
-Domain packages hold the model and the store; `internal/handler` holds HTTP and rendering.
-Handlers depend on domain packages, never the reverse.
+One binary, so operator commands are flags (`-check-config`, `-migrate`,
+`-migrate-status`, `-migrate-down`, `-reset-password EMAIL`): the distroless image has no
+shell to run anything else. A project's own domains go in `internal/<domain>/` (model +
+store) or extend `internal/store`; handlers depend on them, never the reverse.
 
 ## Server-rendered admin areas
 
@@ -150,10 +153,10 @@ with a layout — and the two must not be allowed to blur.
 - **Choose the layout by directory, not a flag.** The login page renders for someone with
   no session, so it needs a layout with no sign-out button *in scope*.
 - **Derive the protected-route list** from the closure that registers the routes, and have
-  a test assert each one refuses an anonymous request. Record the method — a POST route
-  answers a GET with 405 before any middleware runs, so a GET-only sweep proves nothing.
-  Pin the handful of deliberately-public lines by source text so a new mounting path fails
-  the test.
+  a test (`webtest.Sweep`) assert each one refuses an anonymous request. Record the
+  method — a POST route answers a GET with 405 before any middleware runs, so a GET-only
+  sweep proves nothing. Pin the handful of deliberately-public lines by source text so a
+  new mounting path fails the test.
 - **Notices come from a fixed code map** (`?notice=saved`), never echoed query text.
 - **Reach for htmx sparingly**, and only on an element that also carries a real
   `href`/`action`. Plain POST-redirect-GET forms are the default.
@@ -216,14 +219,23 @@ Set this up early; retrofitting is worse.
   and `Renew` runs at sign-in, sign-out and password change. Wrap the mux with it and
   parse no body ahead of it: nosurf reads the form to find the token before any auth,
   so the cap must sit in front, and a `MaxBytesReader` in a handler comes too late. More
-  in [Kit adoption traps](review-traps.md#kit-adoption-traps).
+  in [Kit adoption traps](review-traps.md#kit-adoption-traps). The exception: an app
+  whose native client calls a bearer-token API with no `Sec-Fetch-Site`, `Origin` or
+  `Referer` (nosurf refuses such a request) may keep the stdlib
+  `http.CrossOriginProtection` instead, with a logging deny handler, its trusted origin,
+  and a sweep test.
+- **Config: one `config.Load`, validated before any mode touches the database.** It
+  refuses whatever the server would refuse later (`BASE_URL` through
+  `csrf.ValidateOrigin`, cookie, lifetimes, `clientip.ParseSource`, mail), so a deploy
+  never migrates and then fails to start; `-check-config` runs the same code. Booleans
+  are exactly `true` or `false`: anything else, empty included, is an error.
 - **HSTS off by default** — a browser ignores it over plain HTTP, and sending it from
   localhost pins a rule that breaks the next project on that port. No `preload`: that is
   the operator's decision, with a slow exit.
-- A `hashpw` command that reads the password with `read -rs` — never echoed, never a
-  command-line argument, so it stays out of shell history and `ps`. **Enforce the same
-  password policy there as in the web forms** — it creates the first and most privileged
-  account.
+- `-reset-password EMAIL` reads the password from stdin (or `-password-file`) — never
+  echoed, never a command-line argument, so it stays out of shell history and `ps`. It
+  **enforces the same policy as the web forms**, forces a change at next sign-in and ends
+  the account's sessions. The first account comes from the one-time setup token.
 - **Password policy is length only** (12 chars). Composition rules push people towards
   short mangled words; argon2id already makes offline guessing expensive.
 - **Rate-limit every endpoint that verifies a password, not just login.** A
@@ -276,8 +288,8 @@ Set this up early; retrofitting is worse.
   storage/mail boundary, where the real thing is a network service — plus a contract test
   against a real S3 server (RustFS), gated by an env var such as `BLOB_TEST_ENDPOINT`.
 - **A DB test that skips without its env var is not a pass.** Run the gate with the
-  database up, and report how many tests skipped (`go test -v … | grep -c -- '--- SKIP'`);
-  CI must run the DB and S3 tests for real.
+  database up, and report how many tests skipped (the template's `make test` prints the
+  count; its Postgres variant sets `TEST_REQUIRE_DB=1` so a missing database fails).
 - **Test the code that talks to the network, not just the helper beside it.** A real
   SMTP-sending bug survived because only the header-sanitising function had a test. An
   in-process fake SMTP server is ~80 lines and worth it.
@@ -285,25 +297,41 @@ Set this up early; retrofitting is worse.
 - No frontend test framework. Assert on rendered HTML from real handler requests — while
   remembering that a handler test never runs JavaScript and never enforces a CSP, which is
   precisely the gap the browser step below closes.
+- **Handler tests use `websec/webtest`**, not a hand-rolled client: it keeps cookies,
+  sends `Origin`, never follows a redirect, and reads a `Location` Go's `http.Client`
+  refuses. The README at the pinned version is the manual; the rules that bite:
+  - **Write every expected value by hand** (the wire cookie name, the Location). An
+    expectation computed by the function under test agrees with its bug.
+  - **Bind a shared client to the subtest with `c.With(t)`**; a bare client reports to
+    the parent. Never call a failing method off the test goroutine (`wg.Go`).
+  - **Sweeps are strict, not vacuous**: every protected route with its declared method
+    (`Routes` from the registered patterns), `Min` set to the real count so a lost
+    route fails, every `Public` route with a `Why` that names the reason.
+  - **Production cookie settings need an `https://` origin**: the jar does not send a
+    Secure cookie to a non-loopback HTTP origin. `Cookie(name)` sees path `/` only;
+    `CookieAt(path, name)` reads a path-scoped cookie without an extra request.
+  - **Log probes: `Logger` + `NoSecrets`** with a required marker from the expected line
+    (so silence cannot pass) and secrets of at least 12 bytes; it catches encoded forms
+    that `strings.Contains` misses.
 - **Assert a minimum count in any "every X must Y" test**, or it passes vacuously the day
-  the fixture stops loading.
+  the fixture stops loading (`webtest.MinCount`).
+- **Prove a guard can fail**: break the code it protects once (a mutation in a scratch
+  copy), watch the test fail, and say so in the commit or report. A guard nobody has seen
+  fail is a hypothesis.
 
 **Review every phase before moving on.** Across seven phases of a real build, every single
 review pass found something, and two found a shipped feature that did not work at all. A
 phase is done when someone has looked for the class of bug the tests structurally cannot
 see — not when the suite goes green. `review-traps.md` is the checklist.
 
-**The verification gate before any commit:**
-
-```sh
-make fmt-check && go vet ./... && make sqlc-check && \
-  TEST_DATABASE_URL="…" go test -race -count=1 ./... && make vulncheck
-```
-
-(`sqlc-check` only on Postgres. Use `-count=1`: a cached pass after an environment change
-is not a pass. `gofmt -l . ;` is not a check — it exits 0 with files listed and ignores
-syntax errors; `fmt-check` fails on both, see `scaffold.md`. `vulncheck` runs last so a
-new CVE cannot hide the test results.)
+**The verification gate before any commit runs locally: `make gate`.** There is no
+hosted CI to catch what you skip; the Makefile gate is the single definition of green,
+and you report its result. In the template it is `fmt-check` (`sqlc-check` first on
+Postgres) → `vet` → `go test -race -count=1 -v ./...` with the skip count → `vulncheck`.
+An older app without a `gate` target runs the same steps by hand. (`-count=1`: a cached
+pass after an environment change is not a pass. `gofmt -l . ;` is not a check — it exits
+0 with files listed and ignores syntax errors; the template's `fmt-check` fails on both.
+`vulncheck` runs last so a new CVE cannot hide the test results.)
 
 **Then drive it in a browser, headless.** Not optional, and not satisfied by a screenshot
 of the happy path. Steps hold whether driven by a headless DevTools MCP or by headless
