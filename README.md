@@ -6,9 +6,9 @@ drop the `-n` to apply.
 ## claude
 
 `~/.claude` pieces worth carrying between machines: `settings.json`, `hooks/plan-file-allow.sh`,
-`CLAUDE.md` and `skills/`. `CLAUDE.md` and every skill are symlinks into the `agents` package:
-Claude Code reads only `CLAUDE.md` and `~/.claude/skills`, so those names have to exist, but
-nothing is maintained here.
+`CLAUDE.md`. `CLAUDE.md` is a symlink into the `agents` package: Claude Code reads only
+`CLAUDE.md`, so that name has to exist, but nothing is maintained here. Skills live in
+`skill-packs/` (below).
 
 Deliberately not tracked: `.credentials.json` (OAuth token), `history.jsonl` and `projects/`
 (prompts and conversation transcripts). `settings.json` must stay free of secrets (this repo is
@@ -23,13 +23,32 @@ tracked.
 
 ## agents
 
-The single source for instructions and skills shared by every agent CLI:
+The single source for instructions shared by every agent CLI:
 
 - `.agents/AGENTS.md`: global instructions. `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and
   `~/.config/opencode/AGENTS.md` are symlinks to `~/.agents/AGENTS.md` (`install.sh` makes the
   last two; they are outside the stow packages).
-- `.agents/skills/`: the skills. Stow links them to `~/.agents/skills/`, which Codex and
-  OpenCode read directly.
+
+## skill-packs
+
+Skills are not global. Each pack is a folder of skills (my own, or symlinks to where a tool keeps
+its skills) that an `opencode.json` turns on for one directory tree with
+`"skills": ["~/dev/dotfiles/skill-packs/<pack>"]`. Config is merged from `/` down to the working
+directory, so a pack listed in `~/dev/opencode.json` applies to every repo below it.
+
+| Pack | Turned on by |
+|---|---|
+| dev, go | `~/dev/opencode.json` |
+| cloudflare, basecamp | `~/dev/riverschurch/opencode.json` |
+| ipad | `~/dev/17xande.dev/opencode.json` |
+| swamp | `~/dev/tools/opencode.json` |
+| desktop (omarchy, superwhisper) | `~/dev/dotfiles/opencode.json`, `~/.config/opencode.json` |
+
+Those `opencode.json` files (other than this repo's) are not tracked. Tool-installed skill folders
+(basecamp, swamp) were moved to `~/.local/share/agent-skills/`. The only global skill is herdr.
+`~/.agents/skills/omarchy*` and `~/.claude/skills/omarchy*` are empty placeholder folders: they
+stop Omarchy migrations (`omarchy-agent-skills-link`) from linking its skills back in globally.
+Claude Code does not read the `skills` config key, so it sees only the global skills.
 
 ## claude-plugins
 

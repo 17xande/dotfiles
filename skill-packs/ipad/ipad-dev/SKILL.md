@@ -1,6 +1,16 @@
 ---
 name: ipad-dev
-description: Build, test, deploy, screenshot and drive an xtool iPadOS app from Linux (xtool + pymobiledevice3 + the app's debug HTTP hooks). Covers the Music Practice and Handwriting Practice iPad apps and any other iPad app in ~/dev, plus starting a new one from HelloOmarchy. Load before building or deploying an iPad app, running its Core package tests, checking something on the iPad, reading device logs, taking a screenshot, tapping or dragging on the device, pulling app files, reading a crash, adding a debug command or route. Triggers: iPad app, iPad, build, deploy, run on iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool, swift test, crash, LLDB, usbmuxd, "new iPad app", "without the cable", tailnet, Tailscale, wireless.
+description: >
+  Build, test, deploy, screenshot and drive an xtool iPadOS app from Linux (xtool +
+  pymobiledevice3 + the app's debug HTTP hooks). Covers the Music Practice and
+  Handwriting Practice iPad apps and any other iPad app in ~/dev, plus starting a new
+  one from HelloOmarchy. Load before building or deploying an iPad app, running its
+  Core package tests, checking something on the iPad, reading device logs, taking a
+  screenshot, tapping or dragging on the device, pulling app files, reading a crash,
+  adding a debug command or route. Triggers: iPad app, iPad, build, deploy, run on
+  iPad, device, screenshot, "check it on the iPad", logs, syslog, debug hook, xtool,
+  swift test, crash, LLDB, usbmuxd, "new iPad app", "without the cable", tailnet,
+  Tailscale, wireless.
 ---
 
 # iPad dev loop (Linux host, xtool apps)

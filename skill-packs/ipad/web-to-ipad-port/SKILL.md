@@ -1,6 +1,16 @@
 ---
 name: web-to-ipad-port
-description: Playbook for porting one of the user's web apps to a native iPad app built with xtool from Linux, as done for music-practice -> music-practice-app and handwriting-practice -> handwriting-practice-app. Covers the plan (pure-Swift Core + SwiftUI app), Sonnet-implements/Opus-reviews agent workflow, exact JS/Swift parity fixtures, accounts and sync design, web-first bug fixes, and device verification. Use whenever the user wants to port a web app to the iPad, start a new iPad app from a web app, add sync or accounts to an iPad app, keep an iPad app in step with its web twin, or asks "how did we do music/handwriting". Triggers: port to iPad, iPad version of, web to iPad, native app from the web app, parity, fixtures, sync design, Opus review, milestone review.
+description: >
+  Playbook for porting one of the user's web apps to a native iPad app built with
+  xtool from Linux, as done for music-practice -> music-practice-app and
+  handwriting-practice -> handwriting-practice-app. Covers the plan (pure-Swift Core +
+  SwiftUI app), Sonnet-implements/Opus-reviews agent workflow, exact JS/Swift parity
+  fixtures, accounts and sync design, web-first bug fixes, and device verification.
+  Use whenever the user wants to port a web app to the iPad, start a new iPad app from
+  a web app, add sync or accounts to an iPad app, keep an iPad app in step with its
+  web twin, or asks "how did we do music/handwriting". Triggers: port to iPad, iPad
+  version of, web to iPad, native app from the web app, parity, fixtures, sync design,
+  Opus review, milestone review.
 ---
 
 # Web app -> iPad app port playbook

@@ -2,20 +2,18 @@
 name: go-htmx-web
 description: >
   How to build, test and maintain a Go + htmx web application in this user's preferred
-  style: stdlib-shaped net/http and html/template, SQLite (STRICT) or Postgres via
-  pgx + sqlc + goose, a deliberately tiny dependency surface, embedded assets, plain
-  modern CSS, a strict CSP, and a container-first local stack. Load this whenever you
-  touch such a project -- founding one, adding a feature to one, reviewing one, or
-  debugging one. It carries the layout conventions, admin-area patterns, security
-  baseline, testing gate and tool discipline; setup.md carries the founding decisions
-  (stack, dependency rule, embedding, CSS theme, local stack), sqlite.md the SQLite
-  data layer, review-traps.md the bugs this stack actually produces, scaffold.md how
-  to start from the gowebkit template. Triggers: "new web project", "new Go project",
-  "start a web app", "should I use <framework/library>", "sqlite or postgres", "set up
-  migrations", "add a dependency", "scaffold", gonew, gowebkit, htmx, sqlc, goose,
-  STRICT tables, "admin area", "admin page", CSP, "review this", "why is this broken",
-  "look and feel", "default theme", "update dependencies", S3, object storage, rate
-  limit, CSRF, sessions, cookies, websec, webtest.
+  style: stdlib net/http and html/template, SQLite (STRICT) or Postgres via pgx + sqlc
+  + goose, few dependencies, embedded assets, plain CSS, a strict CSP, and a
+  container-first local stack. Load for any work on such a project. It carries the
+  layout conventions, admin-area patterns, security baseline, testing gate and tool
+  discipline; setup.md the founding decisions, sqlite.md the data layer,
+  review-traps.md the bugs this stack produces, scaffold.md the gowebkit template.
+  Triggers: "new web project", "new Go project", "start a web app", "should I use
+  <framework/library>", "sqlite or postgres", "set up migrations", "add a dependency",
+  "scaffold", gonew, gowebkit, htmx, sqlc, goose, STRICT tables, "admin area", "admin
+  page", CSP, "review this", "why is this broken", "look and feel", "default theme",
+  "update dependencies", S3, object storage, rate limit, CSRF, sessions, cookies,
+  websec, webtest.
 ---
 
 # Go + htmx web applications
