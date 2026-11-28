@@ -38,14 +38,23 @@ directory, so a pack listed in `~/dev/opencode.json` applies to every repo below
 
 | Pack | Turned on by |
 |---|---|
-| dev, go | `~/dev/opencode.json` |
+| dev | `~/dev/opencode.json` (every repo below it) |
+| go | `~/dev/riverschurch`, `~/dev/17xande.dev`, `~/dev/tools`, `~/dev/libraries`, `~/dev/forks`, `~/dev/worktrees` (the folders holding Go repos) |
 | cloudflare, basecamp | `~/dev/riverschurch/opencode.json` |
 | ipad | `~/dev/17xande.dev/opencode.json` |
 | swamp | `~/dev/tools/opencode.json` |
-| desktop (omarchy, superwhisper) | `~/dev/dotfiles/opencode.json`, `~/.config/opencode.json` |
+| desktop (omarchy, omarchy-contribute, omarchy-diagnose-crash, superwhisper) | `~/.config/opencode/opencode.json` (the global config; `~/.config/opencode.json` is not read) |
+| desktop-make (omarchy-make-*, omarchy-plugin-dev) | `~/dev/dotfiles/opencode.json` |
 
-Those `opencode.json` files (other than this repo's) are not tracked. Tool-installed skill folders
-(basecamp, swamp) were moved to `~/.local/share/agent-skills/`. The only global skill is herdr.
+Those `opencode.json` files (other than this repo's) are not tracked: their folders are not repos.
+Tool-installed skill folders (basecamp, swamp) were moved to `~/.local/share/agent-skills/`, and so were
+two stale copies of the Claude app's synced skills that sat in `~/.agents/skills/synced`
+(`~/.local/share/agent-skills/synced/`; they made `pi` print collision warnings). OpenCode also reads the app's
+live sync, `~/.claude/skills/synced/`, which provides docx, pdf, pptx, xlsx, skill-creator, deep-research and
+others globally. The global config denies the ones that need Claude's own connectors or browser tools
+(`built-in-browser`, `chrome-browser`, `computer-use`, `google-workspace`, `docs`, `morning`, `import-memory`) so
+they stay out of the prompt (about 1.4k tokens). The only global skills are herdr, the `desktop` pack and what the
+app syncs.
 `~/.agents/skills/omarchy*` and `~/.claude/skills/omarchy*` are empty placeholder folders: they
 stop Omarchy migrations (`omarchy-agent-skills-link`) from linking its skills back in globally.
 Claude Code does not read the `skills` config key, so it sees only the global skills.
