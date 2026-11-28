@@ -85,9 +85,11 @@ An app with its own older `jobs` table moves over in one stop-first release:
   again. No sleeps, no real ticker, no `Start` in a unit test.
 - Assert the hooks' effect on the app's tables, the dead reason text (fixed, from
   `Describe`), and that a planted secret never reaches the log.
-- **⚠️ One SQLite connection means hooks use only their tx.** With
-  `SetMaxOpenConns(1)`, an `OnDone` that queries through the `*sql.DB` instead of the
-  tx it was given waits forever for the connection its own transaction holds. Pass
-  the tx down; a test with the production pool size proves it.
+- **⚠️ Hooks use only their tx.** That keeps the transition atomic in every app. In an
+  app that opens SQLite with `SetMaxOpenConns(1)` (a common choice for SQLite writers;
+  the template uses a pool and does not), an `OnDone` that queries through the
+  `*sql.DB` or the queue's read API instead of the tx it was given also waits forever
+  for the connection its own transaction holds. Pass the tx down; a test with the
+  production pool size proves it.
 - A queue-table change in a release: read the module's changelog for migrations and
   plan it as a stop-first deploy.

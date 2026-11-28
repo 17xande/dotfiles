@@ -541,10 +541,11 @@ above hit, every submission was still in the database with `email_sent = 0`.
 
 The patterns are in `queue.md`; these are what reviews of queue adoptions found.
 
-- **⚠️ A hook that leaves its transaction deadlocks a one-connection pool.** An
-  `OnDone`/`OnDead` hook (or anything it calls) that reaches for the `*sql.DB` while
-  the transition's tx holds the only connection waits forever. Hooks use only the tx
-  they are given.
+- **⚠️ A hook that leaves its transaction.** Hooks use only the tx they are given, so
+  the transition stays atomic. In an app whose pool is `SetMaxOpenConns(1)` (common
+  for SQLite writers; the template's pool is not), an `OnDone`/`OnDead` hook (or
+  anything it calls) that reaches for the `*sql.DB` or the queue's read API while the
+  transition's tx holds the only connection also waits forever.
 - **⚠️ Worker shutdown order.** Started before migrations, it claims from a table
   that is not there yet; stopped after the database closes (or not joined), it fails
   jobs mid-run. Start after migrations, `Stop` and join before `Close`, and keep the
@@ -708,8 +709,12 @@ The rules that keep it safe:
 - **Public repositories (the kit modules, gowebkit) get a hygiene pass before every
   push**: no names of people, organisations, private apps or real hosts, in files,
   history, messages or identities. Use the gowebkit hygiene tool (`make hygiene`
-  there; its `-root` flag points it at another repository) with
-  `HYGIENE_REQUIRE_PRIVATE=1`; the private pattern list stays outside the repo and is
+  there) with `HYGIENE_REQUIRE_PRIVATE=1`. To scan another repository, point `-root`
+  at the root of a throwaway clone (never the real repository; a subdirectory is
+  refused) and copy the allowlist into the clone at `tools/hygiene/allowlist.txt` (or
+  pass `-allowlist`): that path is relative to the root, and a missing file is not an
+  error, so the scan runs without it and flags the maintainer's commit identity and
+  every other allowlisted exception. The private pattern list stays outside the repo and is
   never quoted anywhere. Then read the diff yourself: the scan catches patterns, not
   every leak. A lesson from a private app goes into public docs generically ("an app
   with a legacy queue").

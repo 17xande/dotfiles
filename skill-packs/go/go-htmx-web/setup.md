@@ -102,8 +102,11 @@ and commit only against a real tag.
 `GOWORK=off go build ./...` so a stray `go.work` cannot hide a missing version), and
 bump modules that depend on each other together (the queue's SQLite store needs the
 matching `sqlitekit`). **Never ask the module proxy for a version before its tag is
-pushed**: the proxy caches the "not found" answer, and the real tag then stays
-invisible for a while. Tagging and pushing need the user's word.
+pushed**: the proxy caches the "not found" answer for up to 30 minutes. Once the tag is
+pushed, requesting the exact version (`go get <module>@vX.Y.Z`) makes it available
+within about a minute; if someone asked too early, wait out the 30 minutes and request
+the exact version again (still missing: file an issue with the proxy). Tagging and
+pushing need the user's word.
 
 Deliberately **not** taken: a router, a validation library (struct tags fight the
 per-field messages real forms need), a decimal type, a UUID library (the database
