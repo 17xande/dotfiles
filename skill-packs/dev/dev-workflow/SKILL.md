@@ -3,8 +3,7 @@ name: dev-workflow
 description: >
   The user's default workflow for any multi-step software development task: plan with
   Opus (architecture questions asked up front, stop and ask by default), then orchestrate
-  with Sonnet, implement each phase with Codex Sol agents (Sonnet when Sol is at its
-  usage limit), check on agents every ~15 min and stop any past 45 min, review every
+  with Sonnet, implement each phase with Codex Sol or Sonnet agents, check on agents every ~15 min and stop any past 45 min, review every
   phase with a separate Opus agent, fix and re-review scoped to the fixes, then move to
   the next phase. Load this before planning or building
   a feature, a phase, a new project, a port or a refactor in any repo, and alongside
@@ -23,7 +22,7 @@ This workflow assumes OpenCode's native sessions and tools. It may need reworkin
 before use with Claude Code.
 
 ```
-plan (Opus) -> switch to Sonnet -> per phase: implement (Sol agent; Sonnet fallback)
+plan (Opus) -> switch to Sonnet -> per phase: implement (Sol or Sonnet agent)
             -> check in ~15 min, cap 45 min -> review (Opus agent) -> fix -> scoped re-review
             -> commit -> next phase
 ```
@@ -70,10 +69,10 @@ an Opus agent when the user has granted best judgement, see 1).
   newer, versioned entry appears, prefer it. Name the exact model you used in the brief
   log or plan.
 
-- **Default: Codex Sol agents implement; Opus plans and reviews.** When Sol hits its
-  usage limit (the child fails or stops with a limit error), fall back to a Sonnet
-  agent for the rest of that work and say so in the plan; go back to Sol once it is
-  available. Launch an OpenCode
+- **Codex Sol or Sonnet agents implement; Opus plans and reviews.** Either is a normal
+  choice. When a Sol agent hits its usage limit (the child fails or stops with a limit
+  error), relaunch that work on Sonnet from its partial work and say so in the plan.
+  Launch an OpenCode
   `general` subagent with the `subagent` tool, selecting the requested model using its
   available `providerID/modelID`. Look up the model in OpenCode's model catalog rather
   than guessing the ID; if it is unavailable, stop and ask. One agent per phase (or per
