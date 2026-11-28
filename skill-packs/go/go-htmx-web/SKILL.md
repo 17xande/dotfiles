@@ -6,14 +6,16 @@ description: >
   + goose, few dependencies, embedded assets, plain CSS, a strict CSP, and a
   container-first local stack. Load for any work on such a project. It carries the
   layout conventions, admin-area patterns, security baseline, testing gate and tool
-  discipline; setup.md the founding decisions, sqlite.md the data layer,
-  review-traps.md the bugs this stack produces, scaffold.md the gowebkit template.
+  discipline; setup.md the founding decisions, sqlite.md the data layer, config.md
+  the env loader, queue.md background jobs, review-traps.md the bugs this stack
+  produces and the deploy playbook, scaffold.md the gowebkit template.
   Triggers: "new web project", "new Go project", "start a web app", "should I use
   <framework/library>", "sqlite or postgres", "set up migrations", "add a dependency",
   "scaffold", gonew, gowebkit, htmx, sqlc, goose, STRICT tables, "admin area", "admin
   page", CSP, "review this", "why is this broken", "look and feel", "default theme",
   "update dependencies", S3, object storage, rate limit, CSRF, sessions, cookies,
-  websec, webtest.
+  websec, webtest, env, config, outbox, "job queue", "background job", "send mail",
+  "login page", deploy, Kamal, rollback.
 ---
 
 # Go + htmx web applications
@@ -31,7 +33,9 @@ once.
 | `setup.md` | Choosing the stack or a shared module: the module index, pinned READMEs, embedding, CSS, the local stack |
 | `scaffold.md` | Starting a project: `gonew` the gowebkit template, first run, first deploy, reading the template at a version |
 | `sqlite.md` | The database is SQLite: STRICT, DSN, atomic writes, seed/export |
-| `review-traps.md` | Reviewing, debugging, or about to ship a phase |
+| `config.md` | Adding or changing a setting: the `env` loader, docs-parity and production-values tests |
+| `queue.md` | Mail or any side effect a request triggers: the `outbox` queue and how apps adopt it |
+| `review-traps.md` | Reviewing, debugging, about to ship a phase, or deploying |
 
 The single most important rule is at the bottom: **never decide a dependency by default.**
 
@@ -114,14 +118,15 @@ main.go                     flags, config, logger, wiring, http.Server, graceful
 reset.go setup.go cleanup.go  -reset-password, the setup token, session sweep + backup loop
 compose.yaml Dockerfile Makefile db.mk .env.example config/deploy.yml .kamal/secrets
 docs/                       database.md, deploy.md, operations.md
-internal/config/            all env parsing, one Config; Load validates everything
-internal/db/                Open (lock, check, migrate), Status, MigrateDown, Ping, Backups
+internal/config/            one Config read through the env module; Load validates everything
+internal/db/                Open (lock, check, migrate app then queue), Status, MigrateDown, Ping, Backups
 internal/db/migrations/     0001_init.sql, 0002_… (goose Up/Down)
 internal/db/queries/ gen/   Postgres only: sqlc input, and its checked-in output
 internal/dbtest/            real test database per test
 internal/store/             typed store methods; contract + sessiontest suites
 internal/auth/              users, roles, tokens, password policy
 internal/mail/              a mailer.Sender from config (SMTP or Discard)
+internal/jobs/              the outbox queue and its kinds (queue.md)
 internal/middleware/        request ID, access log (mux pattern), security headers, auth
 internal/handler/           HTTP: one file per area + _test.go alongside
 internal/handler/templates/ layouts/{app,plain}.html, pages/{app,plain}/, partials/
@@ -190,7 +195,8 @@ Set this up early; retrofitting is worse.
   Strip to scheme+host for CSP purposes (a `PublicOrigin()` helper) and regression-test it.
 - **Use the shared modules, don't re-implement them** (table in `setup.md`): password
   hashing, rate limits and client IP, CSRF, session cookies and lifetimes, redirects and
-  CSV exports, SQLite setup, mail and payment gateways each live in a
+  CSV exports, SQLite setup, configuration, background jobs, mail and payment gateways
+  each live in a
   `github.com/17xande-dev/` module that was extracted because the per-app copies had
   drifted into real bugs. Each module's README, at the version the app pins, is the
   usage guide. If a module lacks something, change the module and tag it; never fork
@@ -222,11 +228,20 @@ Set this up early; retrofitting is worse.
   `Referer` (nosurf refuses such a request) may keep the stdlib
   `http.CrossOriginProtection` instead, with a logging deny handler, its trusted origin,
   and a sweep test.
-- **Config: one `config.Load`, validated before any mode touches the database.** It
-  refuses whatever the server would refuse later (`BASE_URL` through
-  `csrf.ValidateOrigin`, cookie, lifetimes, `clientip.ParseSource`, mail), so a deploy
-  never migrates and then fails to start; `-check-config` runs the same code. Booleans
-  are exactly `true` or `false`: anything else, empty included, is an error.
+- **Config: one `config.Load` on `github.com/17xande-dev/env`, validated before any
+  mode touches the database.** It refuses whatever the server would refuse later
+  (`BASE_URL` through `csrf.ValidateOrigin`, cookie, lifetimes, `clientip.ParseSource`,
+  mail), so a deploy never migrates and then fails to start; `-check-config` runs the
+  same code. Unset or empty means the default; a boolean is exactly `true` or `false`;
+  secrets come from `KEY` or `KEY_FILE` as `env.Secret`. All problems are reported
+  together, without values. Details and the two tests every loader has: `config.md`.
+- **Side effects go through the `outbox` queue**, enqueued in the transaction that
+  needs them, never a goroutine from the handler: `queue.md`.
+- **The sign-in page focuses with `autofocus`, no script.** On load the identifier
+  field has it; after a failed attempt the submitted identifier is written back and
+  the password field has it instead. The password is never echoed, and an unknown
+  account and a wrong password render **identical** markup (test it by comparing the
+  two pages with the echoed identifier masked).
 - **HSTS off by default** — a browser ignores it over plain HTTP, and sending it from
   localhost pins a rule that breaks the next project on that port. No `preload`: that is
   the operator's decision, with a slow exit.
@@ -315,7 +330,12 @@ Set this up early; retrofitting is worse.
   the fixture stops loading (`webtest.MinCount`).
 - **Prove a guard can fail**: break the code it protects once (a mutation in a scratch
   copy), watch the test fail, and say so in the commit or report. A guard nobody has seen
-  fail is a hypothesis.
+  fail is a hypothesis. **One mutation per behaviour, naming the test that caught it**
+  ("dropping the `Renew` call fails `TestLoginRenewsToken`"); "the suite went red" can
+  be a different test failing for an unrelated reason.
+- **Docs are tested where they can be**: the env docs-parity test (`config.md`) and a
+  production-values test that copies `deploy.yml` literally, so neither the README nor
+  the deploy file can drift from the loader.
 
 **Review every phase before moving on.** Across seven phases of a real build, every single
 review pass found something, and two found a shipped feature that did not work at all. A
@@ -396,8 +416,9 @@ form — at desktop *and* phone widths, and check for a horizontally scrolling b
 ## Working style
 
 **Who does what is in the `dev-workflow` skill — load it too.** Opus plans and asks the
-architecture questions, Sonnet orchestrates, Sonnet (or Codex Sol) agents implement each
-phase under a 45-minute cap, a separate Opus agent reviews every phase.
+architecture questions, an orchestrator runs the phases, implementer agents (Codex Sol,
+or Sonnet when Sol is unavailable) build each one under a 45-minute cap, and a separate
+Opus agent reviews every phase.
 
 - **A phased plan, in a file outside the repo** (`~/.claude/plans/<name>.md` —
   the same place whichever agent you are, so the trail survives switching). Build one

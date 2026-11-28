@@ -397,6 +397,15 @@ before the database, so an early return for "not found" passes. Make the call
 observable (a package variable `checkDummy = password.CheckDummy` a test swaps for a
 counter) rather than timing it.
 
+### The failed-login page must not differ by cause
+
+Writing the identifier back after a failure (so the password field can take
+`autofocus`) is a new place for the two causes to diverge: an error message, an
+attribute or a hidden field present for one and not the other is an account oracle.
+Compare the wrong-password and unknown-account responses byte for byte after masking
+the echoed identifier, and assert the password value never appears. Focus is the
+`autofocus` attribute set server-side; a focus script would need a CSP exception.
+
 ### ⚠️ A credential header never falls back to the cookie
 
 An API that accepts `Authorization: Bearer` and also a session cookie must use the
@@ -483,9 +492,11 @@ carry the API; these are the mistakes the adoption itself produced.
 - **Retiring an environment variable: ignore a leftover value.** Deploy configs keep
   it for a while; failing startup over a setting nothing reads is an outage for
   nothing.
-- **Booleans are `true` or `false`, nothing else.** `0`/`1`/`auto`/empty were each
-  read differently by different apps; an `auto` that trusted a forwarded header made
-  `Secure` client-controlled. Refuse anything else in `config.Load`.
+- **Booleans are `true` or `false`, nothing else.** `0`/`1`/`auto` were each read
+  differently by different apps; an `auto` that trusted a forwarded header made
+  `Secure` client-controlled. The `env` module refuses anything else and treats empty
+  as the default. **⚠️ Change `"1"` to `"true"` in `deploy.yml` before shipping the
+  strict loader**, and pin it with the production-values test (`config.md`).
 - **`-migrate-down` refuses the baseline** and a missing database: undoing `0001` drops
   every table, and a mistyped `kamal app exec` would do it. Go back past the baseline
   with a backup.
@@ -523,6 +534,42 @@ delivered, and the visitor believes it was sent.
 
 This invariant pays for itself the first time delivery breaks. When the SMTP bug
 above hit, every submission was still in the database with `email_sent = 0`.
+
+---
+
+## Background jobs
+
+The patterns are in `queue.md`; these are what reviews of queue adoptions found.
+
+- **⚠️ A hook that leaves its transaction deadlocks a one-connection pool.** An
+  `OnDone`/`OnDead` hook (or anything it calls) that reaches for the `*sql.DB` while
+  the transition's tx holds the only connection waits forever. Hooks use only the tx
+  they are given.
+- **⚠️ Worker shutdown order.** Started before migrations, it claims from a table
+  that is not there yet; stopped after the database closes (or not joined), it fails
+  jobs mid-run. Start after migrations, `Stop` and join before `Close`, and keep the
+  pool open while `Stop` reports a running worker.
+- **Error text in logs or on the admin page.** SMTP and HTTP client errors carry
+  addresses, URLs and sometimes credentials. Log the class; store a fixed
+  `Describe` text.
+- **Retry as a GET, or outside the protected closure.** The dead-jobs Retry is a
+  CSRF-protected POST covered by the anonymous sweep.
+- **A test that sleeps for the worker.** Use the fake clock and `outboxtest.Drain`;
+  a sleep is a flake or a test that passes before the job ran.
+- **Deletes during a legacy import.** While a legacy table is still imported at
+  startup, a `Purge` or `DeleteSubject` is undone by the next restart.
+
+### ⚠️ Undo SQL must stop at the first failure
+
+Rollback SQL run by hand is a script nobody reruns carefully. Run it with
+`sqlite3 -bail` inside `BEGIN IMMEDIATE`, and make the guard structural: a refusal
+check writes into `CREATE TEMP TABLE guard(bad INTEGER CHECK (bad = 0))` with
+`INSERT OR ROLLBACK`, and **every later statement depends on that table**
+(`… AND EXISTS (SELECT 1 FROM temp.guard)`). The refusal rolls back the TEMP table
+with everything else, so a client that continues past the error, or a run without
+`-bail`, finds no guard table and every later write fails instead of running in
+autocommit. Make it safe to re-run, check it into `testdata/`, and test it twice
+against a migrated fixture, including the refusal.
 
 ---
 
@@ -579,6 +626,14 @@ above hit, every submission was still in the database with `email_sent = 0`.
   with no `TEST_DATABASE_URL` ran none of the SQL. Run the gate with the database
   up and state how many tests skipped; make the gate fail without it
   (`TEST_REQUIRE_DB=1`). There is no hosted CI to run them for you.
+- **⚠️ "I mutated it and the suite failed" proves less than it says.** Mutate one
+  behaviour at a time and name the test that failed; if it is not the test meant to
+  guard that behaviour, the guard is unproven. Record mutation and test name in the
+  commit body.
+- **Docs that a test could check, but nothing does.** The README configuration table
+  and `.env.example` drift from the loader within a release; the env docs-parity
+  test catches it. A loader test written from Go values misses a `deploy.yml`
+  spelling the loader refuses; the production-values test copies the file literally.
 - **A flaky gate is a finding**, not a rerun: random fixture values (see "Kit adoption
   traps"), or a test that waits on a state flag instead of the callback it checks.
   "Green on rerun" hides the next real failure.
@@ -589,21 +644,54 @@ above hit, every submission was still in the database with `email_sent = 0`.
 
 Every deploy needs the user's word; these are the steps that keep one reversible.
 
-- **Back up inside the volume, then rehearse on a copy, on the host.** A `VACUUM INTO`
-  (or `sqlite3 .backup`) as the app's UID, `PRAGMA integrity_check` = `ok`; then start
-  the new image with the production environment against a copy in a scratch volume
-  and check `-migrate-status` and `/healthz`. No production data leaves the host;
-  delete the copies when the user agrees.
-- **Verify production with GET requests only.** Never POST to a live form or payment
-  endpoint; a real sign-in is the user's test, and the report says so.
+**The playbook for a release that changes the schema or the queue** (SQLite on Kamal;
+write it into the app's README as exact commands before the deploy, with the counts
+to expect at each step):
+
+1. **Gate, build, pull.** Clean tree, `make gate`, `make deploy-check`, then build and
+   pull the new image without deploying; record the running version
+   (`kamal app version`, `kamal app containers`) and check free space in the volume.
+2. **Back up inside the volume** with `sqlite3 -bail … ".backup /data/<name>.db"`
+   (never `cp`/`docker cp`/tar of a live WAL database), mode 0600, then
+   `PRAGMA integrity_check` and `foreign_key_check` and the row counts that matter.
+3. **Rehearse on an in-volume copy of that backup, with migrate and status commands
+   only**: `-migrate` (expect `N -> M`), `-migrate-status`, the counts again, the undo
+   SQL twice, and the *old* image's `-migrate-status` against the undone copy. Then
+   remove exactly the rehearsal files.
+4. **Stop first** when the release changes queue tables, or the old binary would keep
+   writing rows the new schema must reconcile: `kamal app stop`, then **read `kamal
+   app details`** and confirm nothing of the app is running; `kamal app stop` can
+   report success when Docker failed to stop a container.
+5. Final backup while stopped, `-migrate` in a one-off container, the checks, then
+   `kamal deploy --skip-push --version <sha>`.
+6. **Verify with GET requests only** (`/healthz`, status, counts), never a POST to a
+   live form, payment or retry endpoint; a real sign-in is the user's test, and the
+   report says so.
+7. **Rollback** is the rehearsed undo SQL while the app is stopped, then `kamal
+   rollback <old-sha>`; the old image refuses a schema newer than it knows, so the
+   order is not optional. Restart nothing in between: the new binary would migrate
+   again.
+
+The rules that keep it safe:
+
+- **⚠️ Never start an app server against production data or any copy of it.** Its
+  worker delivers real mail and calls real APIs from the copied queue. Rehearsals use
+  `-migrate`, `-migrate-status` and a `sqlite3` entrypoint only; only the designated
+  Kamal deploy or rollback starts a server.
+- **Image entrypoints take flags, not the binary name.** The entrypoint is the app,
+  so `docker run … <image> -migrate` (repeating the name passes it as an argument).
+  `kamal app exec --reuse` runs inside the existing container and does need the
+  binary name; without `--reuse` it starts a new container from the image.
+- **⚠️ `--reuse` runs beside the live server.** Fine for a `.backup` or a read; never
+  for a Down step or undo while the app should be stopped: use a one-off container
+  (`docker run --rm` on the host, or `kamal app exec --version <new>`).
+- No production data leaves the host; delete copies when the user agrees.
 - **⚠️ Never delete, move or copy a live SQLite database's `-wal` or `-shm`.** Recent
   commits can live only in the WAL; removing it loses them. No manual checkpoint on
   production without the user's word.
 - **Postgres accessory first.** `kamal setup` boots the accessory but does not wait
   for it; the app exits if the database is not up in time. `kamal accessory boot
   postgres`, wait for `kamal accessory details postgres` to say healthy, then deploy.
-- **A Down step runs in a one-off container** (`kamal app exec --version <new>`) with
-  the app stopped; `--reuse` runs it inside the live server, alongside its writes.
 - **`kamal remove` keeps named volumes** (deleting one is a separate, explicit step);
   `kamal accessory remove` deletes the accessory's data directory. Keep data on named
   volumes and check backups before either.
@@ -617,3 +705,11 @@ Every deploy needs the user's word; these are the steps that keep one reversible
   review.
 - **No private sibling repos or local paths** (`~/dev/...`) in public docs or
   comments; no session logs or "what we did today" in the README.
+- **Public repositories (the kit modules, gowebkit) get a hygiene pass before every
+  push**: no names of people, organisations, private apps or real hosts, in files,
+  history, messages or identities. Use the gowebkit hygiene tool (`make hygiene`
+  there; its `-root` flag points it at another repository) with
+  `HYGIENE_REQUIRE_PRIVATE=1`; the private pattern list stays outside the repo and is
+  never quoted anywhere. Then read the diff yourself: the scan catches patterns, not
+  every leak. A lesson from a private app goes into public docs generically ("an app
+  with a legacy queue").

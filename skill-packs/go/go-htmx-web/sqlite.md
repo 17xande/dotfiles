@@ -250,6 +250,13 @@ and ⚠️ adopting at version N tells goose migrations 1..N are applied — if 
 schema is behind, goose silently skips them. Verify the schema, back up and rehearse
 on a copy before adopting.
 
+**A library that owns tables keeps its own history** (`goosestrict.NewStoreTable`,
+sqlitekit v0.3.0; the `outbox` queue's is `outbox_goose_version`). Run the app's
+migrations first and the library's second, under the **same** `MigrationLock`: on a
+fresh file the app's provider refuses a database that already has tables but no app
+history. `-migrate-status` lists both histories; `-migrate-down` touches the app's
+only. See `queue.md`.
+
 - **No ad-hoc `ALTER`s on startup.** A `PRAGMA table_info` + `ALTER TABLE ADD
   COLUMN` helper looks harmless and is worse than nothing once tables are
   `STRICT`: the column arrives, the old non-strict table definition stays, and the
