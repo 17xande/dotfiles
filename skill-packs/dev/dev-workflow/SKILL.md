@@ -3,9 +3,10 @@ name: dev-workflow
 description: >
   The user's default workflow for any multi-step software development task: plan with
   Opus (architecture questions asked up front, stop and ask by default), then orchestrate
-  with Sonnet, implement each phase with Sonnet agents (or Codex Sol agents when asked),
-  check on agents every ~15 min and stop any past 45 min, review every phase with a
-  separate Opus agent, then move to the next phase. Load this before planning or building
+  with Sonnet, implement each phase with Codex Sol agents (Sonnet when Sol is at its
+  usage limit), check on agents every ~15 min and stop any past 45 min, review every
+  phase with a separate Opus agent, fix and re-review scoped to the fixes, then move to
+  the next phase. Load this before planning or building
   a feature, a phase, a new project, a port or a refactor in any repo, and alongside
   stack skills such as go-htmx-web and web-to-ipad-port. Triggers: "plan this", "build",
   "implement", "next phase", "start the project", "use codex", "use sonnet agents",
@@ -22,8 +23,9 @@ This workflow assumes OpenCode's native sessions and tools. It may need reworkin
 before use with Claude Code.
 
 ```
-plan (Opus) -> switch to Sonnet -> per phase: implement (Sonnet/Codex agent)
-            -> check in ~15 min, cap 45 min -> review (Opus agent) -> fix -> commit -> next phase
+plan (Opus) -> switch to Sonnet -> per phase: implement (Sol agent; Sonnet fallback)
+            -> check in ~15 min, cap 45 min -> review (Opus agent) -> fix -> scoped re-review
+            -> commit -> next phase
 ```
 
 ## 1. Plan with Opus
@@ -68,12 +70,23 @@ an Opus agent when the user has granted best judgement, see 1).
   newer, versioned entry appears, prefer it. Name the exact model you used in the brief
   log or plan.
 
-- **Default: Sonnet agents; when the user asks: Codex Sol agents.** Launch an OpenCode
+- **Default: Codex Sol agents implement; Opus plans and reviews.** When Sol hits its
+  usage limit (the child fails or stops with a limit error), fall back to a Sonnet
+  agent for the rest of that work and say so in the plan; go back to Sol once it is
+  available. Launch an OpenCode
   `general` subagent with the `subagent` tool, selecting the requested model using its
   available `providerID/modelID`. Look up the model in OpenCode's model catalog rather
   than guessing the ID; if it is unavailable, stop and ask. One agent per phase (or per
   independent slice of one), not per file. Subagents run in background child sessions
   and report back when idle.
+- **One writer per worktree.** The orchestrator never lets two agents write the same
+  worktree at once, implementers and fixers alike: give parallel work separate
+  worktrees (the `worktree_create` tool) and merge them deliberately. Reviewers are
+  read-only and may share one.
+- **Before relaunching, read what the last agent left.** A child that stopped (limit,
+  cap, crash) usually committed or left edits: check `git log`, `git status` and
+  `git diff` in its worktree, keep what is sound, and brief the next agent with that
+  state, so it neither redoes nor reverts the work.
 - Use native subagents for all implementers and reviewers, whether they use Claude or
   Codex. Do not launch `claude`, `codex exec`, or another agent through a shell: a shell
   process is not an OpenCode child session. Models running in OpenCode use OpenCode's
@@ -138,6 +151,11 @@ an Opus agent when the user has granted best judgement, see 1).
   does.
 - Triage: send verified fixes back to the implementer using its child `sessionID` to keep
   its context, or to a fresh agent; re-run the full verification gate; commit.
+- **Fix rounds end in a scoped re-review.** After a round of fixes, a fresh Opus agent
+  reviews only the fix commits against the findings they answer (each finding:
+  fixed, partly, or not, with the evidence), plus anything the fixes touched. Repeat
+  until nothing high remains; do not re-run a whole-phase review for a two-line fix,
+  and do not skip the re-review because the fixes "look right".
 - Reviewing it yourself is not a substitute for the Opus reviewer.
 
 ## 6. Next phase, repeat
@@ -147,6 +165,10 @@ an Opus agent when the user has granted best judgement, see 1).
 - Commit at each logical unit; never push without explicit confirmation.
 - **Confirm with the user before crossing a phase boundary** unless they have explicitly
   said to run through several phases; then go back to 3.
+- **Pausing a multi-day effort: write a pause note** in the roadmap or plan file (outside
+  the repo, as in 1): what is done and committed (hashes), what is in flight and in which
+  worktree, what is blocked on the user, and the exact next step. A new session starts
+  by reading it, not by re-deriving the state from git.
 - **The final report says what was not verified** (a production service such as R2
   tested only against a local stand-in, a path with no test, a check skipped), next to
   what was.
